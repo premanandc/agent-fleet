@@ -19,7 +19,7 @@ def main():
     agent = TaskBreakdownAgent(provider="anthropic")
     result = agent.run("Write a function to calculate factorial")
 
-    display(result)
+    format(result)
 
     # Example 2: Complex task (should need breakdown)
     print("\n" + "=" * 60)
@@ -31,7 +31,7 @@ def main():
         "database integration, and REST API"
     )
 
-    display(result)
+    format(result)
 
     # Example 3: Using OpenAI (if configured)
     if os.getenv("OPENAI_API_KEY"):
@@ -44,9 +44,9 @@ def main():
             "Implement a machine learning pipeline for image classification"
         )
 
-        display(result)
+        format(result)
 
-def display(result: dict):
+def format(result: dict):
     print(f"\nTask: {result['task']}")
     print(f"\nNeeds Breakdown: {result['needs_breakdown']}")
     print(f"\nAnalysis:\n{result['analysis']}")
