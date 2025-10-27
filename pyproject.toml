@@ -1,0 +1,13 @@
+[project]
+name = "agent-fleet"
+version = "0.1.0"
+description = "LangGraph agent for breaking down complex tasks"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "langchain-core>=0.3.0",
+    "langchain-openai>=0.2.0",
+    "langchain-anthropic>=0.2.0",
+    "langgraph>=0.2.0",
+    "python-dotenv>=1.0.0",
+]
