@@ -85,9 +85,18 @@ Respond with JSON:
     try:
         response = llm.invoke(messages)
 
-        # Parse response
+        # Parse response - handle code blocks
         import json
-        validation_result = json.loads(response.content)
+        import re
+
+        content = response.content.strip()
+
+        # Try to extract JSON from code blocks
+        json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
+        if json_match:
+            content = json_match.group(1)
+
+        validation_result = json.loads(content)
 
         is_valid = validation_result.get("is_valid", False)
         reasoning = validation_result.get("reasoning", "")

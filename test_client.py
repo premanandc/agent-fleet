@@ -22,40 +22,41 @@ class RouterClient:
         """Find the Router agent's assistant ID"""
         print("🔍 Discovering Router agent...")
 
-        response = requests.post(
-            f"{self.base_url}/assistants/search",
-            json={}
-        )
-        response.raise_for_status()
+        # In the newer API, we can use the graph_id directly as assistant_id
+        # Try common graph IDs
+        for graph_id in ["router", "Router", "router-agent"]:
+            try:
+                # Test if this assistant exists by trying to get its info
+                response = requests.get(f"{self.base_url}/assistants/{graph_id}")
+                if response.status_code == 200:
+                    self.router_assistant_id = graph_id
+                    print(f"✓ Found Router: {self.router_assistant_id}")
+                    return self.router_assistant_id
+            except:
+                continue
 
-        assistants = response.json()
-
-        for assistant in assistants:
-            if assistant.get("graph_id") == "router":
-                self.router_assistant_id = assistant["assistant_id"]
-                print(f"✓ Found Router: {self.router_assistant_id}")
-                return self.router_assistant_id
-
-        print("✗ Router agent not found")
-        return None
+        # Fallback: just use "router" as the ID
+        self.router_assistant_id = "router"
+        print(f"✓ Using default Router ID: {self.router_assistant_id}")
+        return self.router_assistant_id
 
     def list_all_agents(self):
         """List all available agents"""
         print("\n📋 Available Agents:")
         print("-" * 70)
 
-        response = requests.post(
-            f"{self.base_url}/assistants/search",
-            json={}
-        )
-        response.raise_for_status()
+        # Known agents from langgraph.json
+        known_agents = ["router", "quick_agent", "slow_agent", "task_breakdown"]
 
-        assistants = response.json()
-
-        for assistant in assistants:
-            graph_id = assistant.get("graph_id", "unknown")
-            assistant_id = assistant.get("assistant_id", "unknown")
-            print(f"  • {graph_id:20s} → {assistant_id}")
+        for agent_id in known_agents:
+            try:
+                response = requests.get(f"{self.base_url}/assistants/{agent_id}")
+                if response.status_code == 200:
+                    print(f"  ✓ {agent_id:20s}")
+                else:
+                    print(f"  ✗ {agent_id:20s} (not available)")
+            except:
+                print(f"  ✗ {agent_id:20s} (error)")
 
         print("-" * 70)
 
@@ -83,12 +84,13 @@ class RouterClient:
                     }
                 ]
             },
+            "assistant_id": self.router_assistant_id,
             "config": {
                 "configurable": {
                     "mode": mode
                 }
             },
-            "stream_mode": "values"
+            "stream_mode": ["values"]
         }
 
         if stream:
@@ -102,8 +104,9 @@ class RouterClient:
 
         start_time = time.time()
 
+        # Use /runs/stream endpoint with stream_mode="values" to get final state
         response = requests.post(
-            f"{self.base_url}/threads/{self.router_assistant_id}/runs",
+            f"{self.base_url}/runs/stream",
             json=payload,
             timeout=120
         )
@@ -111,9 +114,25 @@ class RouterClient:
         elapsed = time.time() - start_time
 
         if response.status_code == 200:
-            result = response.json()
-            self._display_result(result, elapsed)
-            return result
+            # Collect all streamed events and get the last one
+            last_state = None
+            for line in response.iter_lines():
+                if line:
+                    line_str = line.decode('utf-8')
+                    if line_str.startswith('data: '):
+                        try:
+                            event = json.loads(line_str[6:])
+                            if event.get('data'):
+                                last_state = event['data']
+                        except json.JSONDecodeError:
+                            continue
+
+            if last_state:
+                self._display_result(last_state, elapsed)
+                return last_state
+            else:
+                print("❌ No result received")
+                return None
         else:
             print(f"❌ Error: {response.status_code}")
             print(response.text)
@@ -127,7 +146,7 @@ class RouterClient:
         start_time = time.time()
 
         response = requests.post(
-            f"{self.base_url}/threads/{self.router_assistant_id}/runs/stream",
+            f"{self.base_url}/runs/stream",
             json=payload,
             stream=True,
             timeout=120
