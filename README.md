@@ -1,14 +1,15 @@
 # Agent Fleet
 
-A simple LangGraph-based agent for breaking down complex tasks into actionable steps.
+A multi-agent orchestration system for the ITEP (IT Engineering Productivity) platform, featuring a Router Agent that intelligently delegates tasks to specialized subordinate agents.
 
 ## Features
 
-- **Provider-agnostic**: Supports both OpenAI and Anthropic LLMs
-- **Smart task analysis**: Automatically determines if a task needs breakdown
-- **Simple workflow**: Uses LangGraph for clear state management
-- **Easy configuration**: Switch providers via simple parameters
-- **A2A-compatible**: Deployable as an Agent-to-Agent protocol server via LangSmith
+- **Router Agent**: Orchestrates and delegates tasks based on capabilities
+- **Multi-Agent Architecture**: QuickAgent for fast tasks, SlowAgent for deep analysis
+- **A2A Protocol**: Full Agent-to-Agent protocol support via LangGraph Server
+- **Capability-Driven Routing**: Automatic agent selection based on skills and requirements
+- **LLM Provider Agnostic**: Supports both OpenAI and Anthropic models
+- **Execution Modes**: Auto, interactive, and review modes for different workflows
 
 ## Project Structure
 
@@ -16,185 +17,272 @@ A simple LangGraph-based agent for breaking down complex tasks into actionable s
 agent-fleet/
 ├── src/
 │   ├── llm/
-│   │   └── factory.py          # LLM provider factory
-│   ├── agents/
-│   │   └── task_breakdown.py   # Main task breakdown agent
-│   └── models/
-│       └── state.py            # State definitions
-├── main.py                     # Example usage
-├── pyproject.toml              # Dependencies
-└── .env                        # API keys (create from .env.example)
+│   │   └── factory.py              # LLM provider factory
+│   ├── models/
+│   │   └── router_state.py         # State definitions
+│   ├── utils/
+│   │   └── discovery.py            # Agent discovery utilities
+│   ├── nodes/
+│   │   ├── validate.py             # Request validation (guardrails)
+│   │   ├── reject.py               # Rejection handler
+│   │   ├── plan.py                 # Task planning and decomposition
+│   │   ├── approval.py             # Human-in-the-loop approval
+│   │   ├── execute.py              # Task execution via A2A
+│   │   ├── analyze.py              # Result sufficiency analysis
+│   │   └── aggregate.py            # Final response aggregation
+│   └── agents/
+│       ├── router_agent.py         # Main Router Agent
+│       ├── quick_agent.py          # Fast task agent (1-2s)
+│       └── slow_agent.py           # Deep analysis agent (5-10s)
+├── test_router_simple.py           # Simple Router test
+├── test_router_complete.py         # Complete test suite
+├── langgraph.json                  # LangGraph Server configuration
+├── pyproject.toml                  # Dependencies
+└── .env                            # API keys
 ```
 
 ## Setup
 
-1. **Install dependencies**:
-   ```bash
-   uv sync
-   ```
+### 1. Install Dependencies
 
-2. **Configure API keys**:
-   ```bash
-   cp .env.example .env
-   # Edit .env and add your API keys
-   ```
-
-   You need at least one of:
-   - `ANTHROPIC_API_KEY` for Claude models
-   - `OPENAI_API_KEY` for GPT models
-
-## Usage
-
-### Run the examples:
 ```bash
-python main.py
+uv sync --all-groups
 ```
 
-### Use in your code:
+### 2. Configure API Keys
+
+Create a `.env` file with your API keys:
+
+```bash
+ANTHROPIC_API_KEY=your_anthropic_key_here
+OPENAI_API_KEY=your_openai_key_here  # Optional
+```
+
+You need at least `ANTHROPIC_API_KEY` for the default configuration.
+
+### 3. Start the LangGraph Server
+
+**Important**: Use the `--allow-blocking` flag for development:
+
+```bash
+uv run langgraph dev --no-browser --allow-blocking
+```
+
+The server will start on `http://localhost:2024` with:
+- API Documentation: `http://localhost:2024/docs`
+- A2A endpoints: `http://localhost:2024/a2a/{assistant_id}`
+- Health check: `http://localhost:2024/ok`
+
+## Testing the Router Agent
+
+### Quick Test
+
+```bash
+python test_router_simple.py
+```
+
+This runs a single test to verify the Router is working.
+
+### Complete Test Suite
+
+```bash
+python test_router_complete.py
+```
+
+This runs three test scenarios:
+1. **Quick validation task** - Should delegate to QuickAgent
+2. **Deep analysis task** - Should delegate to SlowAgent
+3. **Off-topic request** - Should be rejected by validation
+
+### Expected Behavior
+
+- ✅ **On-topic requests** are validated and processed
+- ✅ **Off-topic requests** are rejected with explanations
+- ✅ **Tasks are delegated** to appropriate subordinate agents based on capabilities
+- ✅ **Results are aggregated** into coherent final responses
+
+## Router Agent Architecture
+
+The Router uses a 7-node workflow:
+
+```
+[Start] → [Validate] → [Plan] → [Approval] → [Execute] → [Analyze] → [Aggregate] → [End]
+            ↓                                                   ↓
+          [Reject]                                         [Re-plan if needed]
+```
+
+### Nodes
+
+1. **Validate**: Guards against off-topic requests using LLM classification
+2. **Reject**: Handles rejected requests with helpful explanations
+3. **Plan**: Decomposes requests and matches tasks to agent capabilities
+4. **Approval**: Optional human-in-the-loop (interactive mode only)
+5. **Execute**: Delegates tasks to subordinate agents via A2A protocol
+6. **Analyze**: Evaluates if results are sufficient or need replanning
+7. **Aggregate**: Combines results into final response
+
+## Execution Modes
+
+Configure via `config.configurable.mode`:
+
+- **`auto`** (default): Fully autonomous, no approval needed
+- **`interactive`**: Pauses for plan approval before execution
+- **`review`**: Shows plan but auto-approves (transparency without blocking)
+
+## Available Agents
+
+The system includes these agents (registered in `langgraph.json`):
+
+### Router Agent (`router`)
+- **Purpose**: Orchestrates and delegates tasks
+- **Capabilities**: Task planning, agent coordination, result aggregation
+- **Response time**: Depends on delegated agents
+
+### QuickAgent (`quick_agent`)
+- **Purpose**: Fast operations (syntax checks, quick validation)
+- **Capabilities**: `analysis`, `quick-check`, `validation`
+- **Response time**: 1-2 seconds
+
+### SlowAgent (`slow_agent`)
+- **Purpose**: Deep analysis (SonarQube fixes, comprehensive reviews)
+- **Capabilities**: `deep-analysis`, `remediation`, `sonarqube`
+- **Response time**: 5-10 seconds
+
+### Task Breakdown Agent (`task_breakdown`)
+- **Purpose**: Legacy task decomposition agent
+- **Note**: Functionality absorbed into Router
+
+## Usage Examples
+
+### Using the SDK
+
 ```python
-from src.agents.task_breakdown import TaskBreakdownAgent
+import asyncio
+from langgraph_sdk import get_client
 
-# Using Anthropic (Claude)
-agent = TaskBreakdownAgent(provider="anthropic")
+async def test_router():
+    client = get_client(url="http://localhost:2024")
 
-# Or using OpenAI (GPT)
-agent = TaskBreakdownAgent(provider="openai")
+    result = await client.runs.wait(
+        None,  # Threadless run
+        "router",  # Assistant ID
+        input={
+            "messages": [{
+                "role": "user",
+                "content": "Quick check my code for syntax errors"
+            }]
+        },
+        config={
+            "configurable": {
+                "mode": "auto"  # or "interactive", "review"
+            }
+        }
+    )
 
-# Run the agent
-result = agent.run("Build a REST API with authentication")
+    print(result["final_response"])
 
-print(f"Needs breakdown: {result['needs_breakdown']}")
-print(f"Analysis: {result['analysis']}")
-for i, step in enumerate(result['steps'], 1):
-    print(f"{i}. {step}")
+asyncio.run(test_router())
 ```
 
-## How It Works
-
-The agent uses a LangGraph state machine with two main nodes:
-
-1. **Analyze**: Determines if the task is simple or needs breakdown
-2. **Breakdown**: If needed, breaks the task into clear, actionable steps
-
-The workflow:
-```
-[Start] -> [Analyze Task] -> [Break Down?]
-                                  |
-                                  v Yes
-                            [Break Down Task] -> [End]
-                                  |
-                                  v No
-                                [End]
-```
-
-## Configuration
-
-You can customize the agent behavior:
-
-```python
-agent = TaskBreakdownAgent(
-    provider="anthropic",           # "openai" or "anthropic"
-    model="claude-3-5-sonnet-20241022",  # Optional: specific model
-    temperature=0.7                 # Optional: generation temperature
-)
-```
-
-## A2A (Agent-to-Agent) Deployment
-
-This agent can be deployed as an A2A-compatible server using LangSmith's Agent-to-Agent protocol.
-
-### Prerequisites
-
-- LangSmith Enterprise account
-- `langgraph-api>=0.4.9` installed (already in dependencies)
-
-### Local Development
-
-Run the agent server locally:
+### Using curl
 
 ```bash
-uv run langgraph dev
-```
-
-This starts a local server (typically at `http://127.0.0.1:2024`) with:
-- LangGraph API: `http://127.0.0.1:2024`
-- A2A endpoints: `http://127.0.0.1:2024/a2a/{assistant_id}`
-- API docs: `http://127.0.0.1:2024/docs`
-
-### Testing the Agent
-
-Use the provided test script:
-
-```bash
-python test_a2a.py
-```
-
-This tests both:
-1. **LangGraph Threads API** - Direct application integration
-2. **A2A Protocol** - Standardized agent-to-agent communication using raw JSON-RPC over HTTP
-
-### Testing A2A Manually
-
-1. **Find the assistant ID:**
-```bash
-curl -X POST http://127.0.0.1:2024/assistants/search -H "Content-Type: application/json" -d '{}'
-```
-
-2. **Send a task via A2A:**
-```bash
-curl -X POST http://127.0.0.1:2024/a2a/{assistant_id} \
+curl -X POST http://localhost:2024/runs/wait \
   -H "Content-Type: application/json" \
   -d '{
-    "jsonrpc": "2.0",
-    "method": "message/send",
-    "params": {
-      "message": {
-        "role": "user",
-        "parts": [{"kind": "text", "text": "Build a REST API with authentication"}]
-      }
+    "assistant_id": "router",
+    "input": {
+      "messages": [
+        {"role": "user", "content": "Fix SonarQube violations"}
+      ]
     },
-    "id": 1
+    "config": {
+      "configurable": {"mode": "auto"}
+    }
   }'
 ```
 
-### Production Deployment
+## Version Compatibility
 
-Deploy to LangSmith Cloud:
+**Important**: The project is currently pinned to compatible versions:
+
+- `langgraph-api==0.4.46` (not 0.5.x due to incompatibility issues)
+- `langgraph-runtime-inmem==0.14.1`
+- `langgraph-cli==0.4.6`
+
+These versions are tested and working together. Do not upgrade to 0.5.x until the `FF_RICH_THREADS` compatibility issue is resolved upstream.
+
+## Configuration
+
+### LLM Models
+
+Default model is `claude-sonnet-4-20250514`. You can customize in `src/llm/factory.py` or via environment variables:
+
+```bash
+LLM_PROVIDER=anthropic  # or "openai"
+LLM_MODEL=claude-sonnet-4-20250514  # Optional override
+```
+
+### Blocking Calls
+
+The current implementation uses synchronous `requests` library for HTTP calls. For development, use:
+
+```bash
+uv run langgraph dev --allow-blocking
+```
+
+For production, consider refactoring to use async HTTP libraries (`aiohttp`, `httpx`).
+
+## Troubleshooting
+
+### Server won't start
+- Ensure port 2024 is not in use: `lsof -i :2024`
+- Check API keys are set in `.env`
+- Verify versions: `uv pip list | grep langgraph`
+
+### "FF_RICH_THREADS" error
+- You're using incompatible versions (0.5.x)
+- Downgrade: `uv pip install 'langgraph-api==0.4.46'`
+- Update `pyproject.toml` to pin the version
+
+### "BlockingError" in logs
+- Restart server with: `uv run langgraph dev --allow-blocking`
+
+### JSON parsing errors in validation
+- Check server logs to see LLM responses
+- The code handles both raw JSON and code-block wrapped JSON
+
+## Production Deployment
+
+For production deployment to LangSmith Cloud:
 
 ```bash
 langgraph deploy
 ```
 
-The deployed agent will be accessible at:
-- A2A endpoint: `https://your-deployment.langgraph.app/a2a/task_breakdown`
-- Agent card: `https://your-deployment.langgraph.app/.well-known/agent-card.json?assistant_id=task_breakdown`
-
-### Configuration
-
-The deployment configuration is in `langgraph.json`:
-
-```json
-{
-  "dependencies": ["."],
-  "graphs": {
-    "task_breakdown": "./src/agents/task_breakdown_a2a.py:create_task_breakdown_graph"
-  },
-  "env": ".env"
-}
-```
-
-### A2A-Compatible Agent
-
-The A2A version (`task_breakdown_a2a.py`) differs from the standalone version:
-- Uses `messages` key in state (required for A2A protocol)
-- Accepts message-based input via A2A protocol
-- Returns responses as A2A-compatible message artifacts
+Make sure to:
+1. Set `BG_JOB_ISOLATED_LOOPS=true` environment variable
+2. Use async HTTP calls instead of `requests`
+3. Configure proper checkpointing (PostgreSQL)
 
 ## Dependencies
 
-- `langchain-core` - Core LangChain abstractions
-- `langchain-openai` - OpenAI integration
-- `langchain-anthropic` - Anthropic integration
-- `langgraph` - State machine framework
-- `langgraph-api` - A2A protocol support and deployment
-- `python-dotenv` - Environment variable management
+Core dependencies:
+- `langchain-core>=1.0.3` - LangChain abstractions
+- `langchain-anthropic>=1.0.1` - Anthropic integration
+- `langgraph>=1.0.2` - State machine framework
+- `langgraph-cli>=0.4.6` - CLI tools
+- `requests>=2.32.5` - HTTP client (TODO: migrate to async)
+
+Development dependencies:
+- `langgraph-api==0.4.46` - LangGraph dev server
+- `langgraph-sdk>=0.2.9` - Python SDK for testing
+- `pytest>=8.4.2` - Testing framework
+
+## License
+
+[Your license here]
+
+## Contributing
+
+[Your contributing guidelines here]
