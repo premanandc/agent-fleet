@@ -220,7 +220,7 @@ if __name__ == "__main__":
     print("="*60)
 
     # Test 3: Simple task via A2A
-    test_agent_a2a("Write a function to calculate factorial")
+    test_agent_a2a("What is `2 + 2`")
 
     # Test 4: Complex task via A2A
     test_agent_a2a(

@@ -14,3 +14,4 @@ wheels/
 
 # Langraph
 .langgraph_api/
+.DS_Store
