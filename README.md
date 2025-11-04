@@ -62,10 +62,8 @@ You need at least `ANTHROPIC_API_KEY` for the default configuration.
 
 ### 3. Start the LangGraph Server
 
-**Important**: Use the `--allow-blocking` flag for development:
-
 ```bash
-uv run langgraph dev --no-browser --allow-blocking
+uv run langgraph dev --no-browser
 ```
 
 The server will start on `http://localhost:2024` with:
@@ -223,15 +221,22 @@ LLM_PROVIDER=anthropic  # or "openai"
 LLM_MODEL=claude-sonnet-4-20250514  # Optional override
 ```
 
-### Blocking Calls
+### HTTP Client
 
-The current implementation uses synchronous `requests` library for HTTP calls. For development, use:
+The implementation uses `httpx` for async HTTP calls, ensuring non-blocking I/O operations throughout the Router Agent and subordinate agent communication.
 
-```bash
-uv run langgraph dev --allow-blocking
-```
+### Agent Discovery
 
-For production, consider refactoring to use async HTTP libraries (`aiohttp`, `httpx`).
+The Router dynamically discovers subordinate agents at planning time via LangGraph Server's A2A protocol:
+
+1. **Automatic Discovery**: Calls `/assistants/search` to find all available agents
+2. **A2A Card Retrieval**: Fetches each agent's card via `/.well-known/agent-card.json?assistant_id={id}`
+3. **Filtering**: Automatically skips:
+   - The router itself (no self-delegation)
+   - Legacy agents like `task_breakdown`
+   - Agents without A2A card endpoints
+4. **Fallback Metadata**: For known agents (QuickAgent, SlowAgent), uses detailed capability metadata from `src/utils/discovery.py:AGENT_METADATA`
+5. **Dynamic Support**: Can discover and use new agents added to the system without code changes
 
 ## Troubleshooting
 
@@ -246,7 +251,8 @@ For production, consider refactoring to use async HTTP libraries (`aiohttp`, `ht
 - Update `pyproject.toml` to pin the version
 
 ### "BlockingError" in logs
-- Restart server with: `uv run langgraph dev --allow-blocking`
+- This should not occur anymore (code now uses async HTTP with httpx)
+- If you see this, ensure you've pulled the latest code with async refactoring
 
 ### JSON parsing errors in validation
 - Check server logs to see LLM responses
@@ -261,9 +267,9 @@ langgraph deploy
 ```
 
 Make sure to:
-1. Set `BG_JOB_ISOLATED_LOOPS=true` environment variable
-2. Use async HTTP calls instead of `requests`
-3. Configure proper checkpointing (PostgreSQL)
+1. Configure proper checkpointing (PostgreSQL instead of MemorySaver)
+2. Set appropriate timeout values for production workloads
+3. Configure monitoring and logging
 
 ## Dependencies
 
@@ -272,7 +278,7 @@ Core dependencies:
 - `langchain-anthropic>=1.0.1` - Anthropic integration
 - `langgraph>=1.0.2` - State machine framework
 - `langgraph-cli>=0.4.6` - CLI tools
-- `requests>=2.32.5` - HTTP client (TODO: migrate to async)
+- `httpx>=0.27.0` - Async HTTP client
 
 Development dependencies:
 - `langgraph-api==0.4.46` - LangGraph dev server

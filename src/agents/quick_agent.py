@@ -8,7 +8,7 @@ Examples: syntax checking, quick validation, basic analysis
 Runtime: 1-2 seconds
 """
 
-import time
+import asyncio
 import random
 from typing import Annotated
 from langchain_core.messages import BaseMessage, AIMessage
@@ -22,7 +22,7 @@ class QuickAgentState(dict):
     messages: Annotated[list[BaseMessage], add_messages]
 
 
-def process_quick_task(state: QuickAgentState) -> dict:
+async def process_quick_task(state: QuickAgentState) -> dict:
     """
     Simulates a quick task (1-2 seconds)
 
@@ -44,7 +44,7 @@ def process_quick_task(state: QuickAgentState) -> dict:
 
     # Simulate quick processing (1-2 seconds)
     processing_time = random.uniform(1.0, 2.0)
-    time.sleep(processing_time)
+    await asyncio.sleep(processing_time)
 
     # Generate realistic response based on task keywords
     response = _generate_quick_response(task_description, processing_time)

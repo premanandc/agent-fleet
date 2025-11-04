@@ -15,9 +15,10 @@ from langchain_core.runnables import RunnableConfig
 
 from ..models.router_state import RouterState, Plan, Task
 from ..llm.factory import LLMFactory
+from ..utils.discovery import discover_agents_from_langgraph
 
 
-def generate_plan(state: RouterState, config: RunnableConfig) -> dict:
+async def generate_plan(state: RouterState, config: RunnableConfig) -> dict:
     """
     Generates execution plan by breaking down request into tasks
 
@@ -39,8 +40,9 @@ def generate_plan(state: RouterState, config: RunnableConfig) -> dict:
     user_request = state.get("original_request", "")
     print(f"[Plan] Generating plan for: {user_request[:100]}...")
 
-    # Get agent registry from config
-    agent_registry = config.get("configurable", {}).get("agent_registry", {})
+    # Discover agents dynamically
+    print("[Plan] Discovering available agents...")
+    agent_registry = await discover_agents_from_langgraph()
 
     if not agent_registry:
         print("[Plan] Warning: No agents available in registry")
@@ -152,7 +154,7 @@ IMPORTANT:
     ]
 
     try:
-        response = llm.invoke(messages)
+        response = await llm.ainvoke(messages)
 
         # Parse response
         plan_data = json.loads(response.content)

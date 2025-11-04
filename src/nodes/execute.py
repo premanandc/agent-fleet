@@ -7,15 +7,15 @@ and manages dependencies.
 """
 
 import os
-import requests
+import asyncio
+import httpx
 from typing import Dict, List
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from langchain_core.runnables import RunnableConfig
 
 from ..models.router_state import RouterState, Task
 
 
-def execute_tasks(state: RouterState, config: RunnableConfig) -> dict:
+async def execute_tasks(state: RouterState, config: RunnableConfig) -> dict:
     """
     Executes tasks from the plan by invoking subordinate agents
 
@@ -58,9 +58,9 @@ def execute_tasks(state: RouterState, config: RunnableConfig) -> dict:
 
     # Execute tasks based on strategy
     if execution_strategy == "parallel":
-        results = _execute_parallel(tasks, completed_tasks, original_request, langgraph_url)
+        results = await _execute_parallel(tasks, completed_tasks, original_request, langgraph_url)
     else:  # sequential
-        results = _execute_sequential(tasks, completed_tasks, original_request, langgraph_url)
+        results = await _execute_sequential(tasks, completed_tasks, original_request, langgraph_url)
 
     # Merge results with any previous results
     all_results = list(completed_tasks.values()) + results
@@ -76,14 +76,14 @@ def execute_tasks(state: RouterState, config: RunnableConfig) -> dict:
     }
 
 
-def _execute_parallel(
+async def _execute_parallel(
     tasks: List[Task],
     completed_tasks: Dict[str, Task],
     original_request: str,
     langgraph_url: str
 ) -> List[Task]:
     """
-    Execute tasks in parallel using ThreadPoolExecutor
+    Execute tasks in parallel using asyncio
 
     Only executes tasks whose dependencies are already completed.
     Tasks with unmet dependencies are skipped.
@@ -106,39 +106,34 @@ def _execute_parallel(
 
     print(f"[Execute] Executing {len(ready_tasks)} tasks in parallel")
 
-    # Execute ready tasks in parallel
-    with ThreadPoolExecutor(max_workers=min(len(ready_tasks), 5)) as executor:
-        # Submit all tasks
-        future_to_task = {
-            executor.submit(
-                _invoke_agent,
-                task,
-                original_request,
-                completed_tasks,
-                langgraph_url
-            ): task
+    # Execute ready tasks in parallel using asyncio.gather
+    async with httpx.AsyncClient() as client:
+        task_coroutines = [
+            _invoke_agent(task, original_request, completed_tasks, langgraph_url, client)
             for task in ready_tasks
-        }
+        ]
 
-        # Collect results as they complete
-        for future in as_completed(future_to_task):
-            task = future_to_task[future]
-            try:
-                result = future.result()
-                results.append(result)
-                completed_tasks[result["id"]] = result
-            except Exception as e:
-                print(f"[Execute] Error executing task {task['id']}: {e}")
+        # Gather all results
+        task_results = await asyncio.gather(*task_coroutines, return_exceptions=True)
+
+        # Process results
+        for i, result in enumerate(task_results):
+            task = ready_tasks[i]
+            if isinstance(result, Exception):
+                print(f"[Execute] Error executing task {task['id']}: {result}")
                 # Mark task as failed
                 failed_task = task.copy()
                 failed_task["status"] = "failed"
-                failed_task["error"] = str(e)
+                failed_task["error"] = str(result)
                 results.append(failed_task)
+            else:
+                results.append(result)
+                completed_tasks[result["id"]] = result
 
     return results
 
 
-def _execute_sequential(
+async def _execute_sequential(
     tasks: List[Task],
     completed_tasks: Dict[str, Task],
     original_request: str,
@@ -155,41 +150,42 @@ def _execute_sequential(
 
     results = []
 
-    for task in tasks:
-        # Skip already completed tasks
-        if task["id"] in completed_tasks:
-            print(f"[Execute] Skipping already completed task: {task['description']}")
-            continue
+    async with httpx.AsyncClient() as client:
+        for task in tasks:
+            # Skip already completed tasks
+            if task["id"] in completed_tasks:
+                print(f"[Execute] Skipping already completed task: {task['description']}")
+                continue
 
-        # Check dependencies
-        if not _are_dependencies_met(task, completed_tasks):
-            print(f"[Execute] Skipping task with unmet dependencies: {task['description']}")
-            # Mark as failed due to unmet dependencies
-            failed_task = task.copy()
-            failed_task["status"] = "failed"
-            failed_task["error"] = "Dependencies not met"
-            results.append(failed_task)
-            continue
+            # Check dependencies
+            if not _are_dependencies_met(task, completed_tasks):
+                print(f"[Execute] Skipping task with unmet dependencies: {task['description']}")
+                # Mark as failed due to unmet dependencies
+                failed_task = task.copy()
+                failed_task["status"] = "failed"
+                failed_task["error"] = "Dependencies not met"
+                results.append(failed_task)
+                continue
 
-        # Execute task
-        print(f"[Execute] Executing task: {task['description']}")
-        try:
-            result = _invoke_agent(task, original_request, completed_tasks, langgraph_url)
-            results.append(result)
-            completed_tasks[result["id"]] = result
+            # Execute task
+            print(f"[Execute] Executing task: {task['description']}")
+            try:
+                result = await _invoke_agent(task, original_request, completed_tasks, langgraph_url, client)
+                results.append(result)
+                completed_tasks[result["id"]] = result
 
-            # Optional: Stop on first failure (can be configured)
-            # if result["status"] == "failed":
-            #     print("[Execute] Task failed, stopping sequential execution")
-            #     break
+                # Optional: Stop on first failure (can be configured)
+                # if result["status"] == "failed":
+                #     print("[Execute] Task failed, stopping sequential execution")
+                #     break
 
-        except Exception as e:
-            print(f"[Execute] Error executing task {task['id']}: {e}")
-            failed_task = task.copy()
-            failed_task["status"] = "failed"
-            failed_task["error"] = str(e)
-            results.append(failed_task)
-            completed_tasks[failed_task["id"]] = failed_task
+            except Exception as e:
+                print(f"[Execute] Error executing task {task['id']}: {e}")
+                failed_task = task.copy()
+                failed_task["status"] = "failed"
+                failed_task["error"] = str(e)
+                results.append(failed_task)
+                completed_tasks[failed_task["id"]] = failed_task
 
     return results
 
@@ -211,11 +207,12 @@ def _are_dependencies_met(task: Task, completed_tasks: Dict[str, Task]) -> bool:
     return True
 
 
-def _invoke_agent(
+async def _invoke_agent(
     task: Task,
     original_request: str,
     completed_tasks: Dict[str, Task],
-    langgraph_url: str
+    langgraph_url: str,
+    client: httpx.AsyncClient
 ) -> Task:
     """
     Invoke a subordinate agent via A2A protocol
@@ -271,10 +268,10 @@ Please complete this task and provide your findings.
 
     try:
         # Invoke agent via A2A
-        response = requests.post(
+        response = await client.post(
             f"{langgraph_url}/a2a/{agent_id}",
             json=a2a_request,
-            timeout=300  # 5 minute timeout for agent execution
+            timeout=300.0  # 5 minute timeout for agent execution
         )
 
         response.raise_for_status()
@@ -305,7 +302,7 @@ Please complete this task and provide your findings.
 
         return completed_task
 
-    except requests.exceptions.Timeout:
+    except httpx.TimeoutException:
         print(f"[Execute] Agent {task['agent_name']} timed out")
         failed_task = task.copy()
         failed_task["status"] = "failed"
@@ -313,7 +310,7 @@ Please complete this task and provide your findings.
         failed_task["result"] = None
         return failed_task
 
-    except requests.exceptions.HTTPError as e:
+    except httpx.HTTPStatusError as e:
         print(f"[Execute] HTTP error invoking agent {task['agent_name']}: {e}")
         failed_task = task.copy()
         failed_task["status"] = "failed"

@@ -8,7 +8,7 @@ Examples: code fixing, deep analysis, complex refactoring
 Runtime: 5-10 seconds
 """
 
-import time
+import asyncio
 import random
 from typing import Annotated
 from langchain_core.messages import BaseMessage, AIMessage
@@ -22,7 +22,7 @@ class SlowAgentState(dict):
     messages: Annotated[list[BaseMessage], add_messages]
 
 
-def process_slow_task(state: SlowAgentState) -> dict:
+async def process_slow_task(state: SlowAgentState) -> dict:
     """
     Simulates a long-running task (5-10 seconds)
 
@@ -57,7 +57,7 @@ def process_slow_task(state: SlowAgentState) -> dict:
     for stage, proportion in stages:
         stage_time = processing_time * proportion
         print(f"[SlowAgent]   {stage}... ({stage_time:.1f}s)")
-        time.sleep(stage_time)
+        await asyncio.sleep(stage_time)
         elapsed += stage_time
 
     # Generate realistic response based on task keywords

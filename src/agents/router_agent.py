@@ -6,6 +6,7 @@ This is the factory function that LangGraph Server calls to instantiate the agen
 """
 
 import uuid
+import asyncio
 from typing import Literal
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
@@ -40,9 +41,10 @@ def create_router_graph(config: RunnableConfig = None):
 
     print("[Router] Initializing Router Agent...")
 
-    # Discover available agents from LangGraph Server
-    agent_registry = discover_agents_from_langgraph()
-    print(f"[Router] Discovered {len(agent_registry)} agents")
+    # Note: Agent discovery is now done lazily in the plan node
+    # to avoid blocking during graph initialization
+    agent_registry = {}
+    print("[Router] Agent discovery will occur during planning")
 
     # Create state graph
     graph = StateGraph(RouterState)
