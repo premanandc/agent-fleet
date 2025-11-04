@@ -11,7 +11,11 @@ import logging
 import asyncio
 import httpx
 from typing import Dict, List
+from uuid import uuid4
 from langchain_core.runnables import RunnableConfig
+
+from a2a.client import A2AClient, A2AClientHTTPError, A2AClientJSONError
+from a2a.types import SendMessageRequest, MessageSendParams, AgentCard, SendMessageSuccessResponse, Message
 
 from ..models.router_state import RouterState, Task
 
@@ -218,12 +222,13 @@ async def _invoke_agent(
     client: httpx.AsyncClient
 ) -> Task:
     """
-    Invoke a subordinate agent via A2A protocol
+    Invoke a subordinate agent via A2A protocol using the A2A SDK
 
-    Makes HTTP POST to /a2a/{agent_id} with:
-    - Original user request
-    - Task-specific instructions
-    - Context from completed dependencies
+    Uses the official a2a-sdk to:
+    - Resolve agent card from /.well-known/agent-card.json
+    - Create A2AClient with proper JSON-RPC handling
+    - Send message with automatic protocol formatting
+    - Parse response with built-in error handling
 
     Returns updated Task with result or error
     """
@@ -251,70 +256,86 @@ Your specific task: {task_description}
 Please complete this task and provide your findings.
 """
 
-    # Prepare A2A request (JSON-RPC 2.0 format)
-    a2a_request = {
-        "jsonrpc": "2.0",
-        "id": task['id'],
-        "method": "message/send",
-        "params": {
-            "message": {
-                "role": "user",
-                "parts": [
-                    {
-                        "kind": "text",
-                        "text": agent_message
-                    }
-                ]
-            },
-            "messageId": f"msg_{task['id']}",
-            "thread": {
-                "threadId": f"router_task_{task['id']}"
-            }
-        }
-    }
-
     try:
-        # Invoke agent via A2A
-        response = await client.post(
-            f"{langgraph_url}/a2a/{agent_id}",
-            json=a2a_request,
-            timeout=300.0  # 5 minute timeout for agent execution
+        # Fetch agent card directly (LangGraph uses query params, not path-based cards)
+        # Format: GET /.well-known/agent-card.json?assistant_id={agent_id}
+        card_response = await client.get(
+            f"{langgraph_url}/.well-known/agent-card.json",
+            params={"assistant_id": agent_id},
+            timeout=10.0
+        )
+        card_response.raise_for_status()
+        agent_card_data = card_response.json()
+
+        # Parse the JSON response into an AgentCard Pydantic model
+        agent_card = AgentCard(**agent_card_data)
+
+        # Create A2A client with the parsed agent card
+        a2a_client = A2AClient(
+            httpx_client=client,
+            agent_card=agent_card,
+            url=f"{langgraph_url}/a2a/{agent_id}"
         )
 
-        response.raise_for_status()
+        # Prepare message payload
+        send_message_payload = {
+            'message': {
+                'role': 'user',
+                'parts': [
+                    {'kind': 'text', 'text': agent_message}
+                ],
+                'messageId': f"msg_{task['id']}",
+            },
+            'thread': {
+                'threadId': f"router_task_{task['id']}"
+            }
+        }
 
-        # Parse JSON-RPC 2.0 response
-        response_data = response.json()
+        # Create send message request
+        request = SendMessageRequest(
+            id=task['id'],
+            params=MessageSendParams(**send_message_payload)
+        )
 
-        # Extract result from JSON-RPC response
-        # Response format: {"jsonrpc": "2.0", "id": "...", "result": {...}}
+        # Send message via A2A SDK (handles JSON-RPC automatically)
+        response = await a2a_client.send_message(
+            request,
+            http_kwargs={'timeout': 300.0}  # 5 minute timeout
+        )
+
+        # Extract result from response
+        # SendMessageResponse is a RootModel that wraps either error or success response
         agent_result = "No response from agent"
-        if isinstance(response_data, dict):
-            # Check for JSON-RPC error
-            if "error" in response_data:
-                error_info = response_data["error"]
-                error_msg = error_info.get("message", str(error_info))
-                raise Exception(f"A2A agent returned error: {error_msg}")
 
-            # Extract result from JSON-RPC response
-            result = response_data.get("result", {})
+        # Check if response is a success (not an error)
+        if isinstance(response.root, SendMessageSuccessResponse):
+            success_response = response.root
 
-            # The result should contain message parts
-            if isinstance(result, dict):
-                message = result.get("message", {})
-                parts = message.get("parts", [])
+            # The result can be either a Task or a Message
+            result = success_response.result
 
-                # Extract text from parts
-                text_parts = []
-                for part in parts:
-                    if isinstance(part, dict) and part.get("kind") == "text":
-                        text_parts.append(part.get("text", ""))
+            if isinstance(result, Message):
+                # Extract text from message parts
+                if hasattr(result, 'parts') and result.parts:
+                    text_parts = []
+                    for part in result.parts:
+                        if hasattr(part, 'kind') and part.kind == 'text' and hasattr(part, 'text'):
+                            text_parts.append(part.text)
 
-                if text_parts:
-                    agent_result = "\n".join(text_parts)
+                    if text_parts:
+                        agent_result = "\n".join(text_parts)
+                    else:
+                        agent_result = str(result)
                 else:
-                    # Fallback: try to extract any content
                     agent_result = str(result)
+            else:
+                # Result is a Task object
+                agent_result = str(result)
+        else:
+            # This is an error response
+            error_response = response.root
+            error_msg = getattr(error_response, 'error', {}).get('message', 'Unknown error')
+            raise Exception(f"A2A agent returned error: {error_msg}")
 
         logger.info(f"Agent {task['agent_name']} completed: {agent_result[:100]}...")
 
@@ -334,11 +355,19 @@ Please complete this task and provide your findings.
         failed_task["result"] = None
         return failed_task
 
-    except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP error invoking agent {task['agent_name']}: {e}")
+    except A2AClientHTTPError as e:
+        logger.error(f"A2A HTTP error invoking agent {task['agent_name']}: {e}")
         failed_task = task.copy()
         failed_task["status"] = "failed"
-        failed_task["error"] = f"HTTP {e.response.status_code}: {e.response.text}"
+        failed_task["error"] = f"A2A HTTP error: {str(e)}"
+        failed_task["result"] = None
+        return failed_task
+
+    except A2AClientJSONError as e:
+        logger.error(f"A2A JSON error invoking agent {task['agent_name']}: {e}")
+        failed_task = task.copy()
+        failed_task["status"] = "failed"
+        failed_task["error"] = f"A2A JSON error: {str(e)}"
         failed_task["result"] = None
         return failed_task
 

@@ -8,6 +8,205 @@ A2A is Google's protocol for enabling communication between conversational AI ag
 
 **Key Point:** A2A uses **JSON-RPC 2.0** format, not REST-style requests.
 
+**Recommendation:** Use the official **a2a-sdk** package instead of manual JSON-RPC construction for cleaner, more maintainable code.
+
+## Using the A2A SDK (Recommended)
+
+The Router Agent now uses the official **a2a-sdk** package to handle A2A communication. This provides significant advantages over manual JSON-RPC construction.
+
+### Installation
+
+```bash
+# Add to pyproject.toml
+dependencies = [
+    "a2a-sdk>=0.3.10",
+]
+
+# Install
+uv sync
+# or
+pip install a2a-sdk
+```
+
+### SDK Implementation (Current)
+
+```python
+from a2a.client import A2AClient
+from a2a.types import SendMessageRequest, MessageSendParams, AgentCard
+import httpx
+
+async def invoke_agent(agent_id: str, message: str, task_id: str):
+    """
+    Invoke a subordinate agent using the A2A SDK
+    """
+    async with httpx.AsyncClient() as client:
+        # 1. Fetch agent card (LangGraph uses query params)
+        # Format: GET /.well-known/agent-card.json?assistant_id={agent_id}
+        card_response = await client.get(
+            "http://localhost:2024/.well-known/agent-card.json",
+            params={"assistant_id": agent_id},
+            timeout=10.0
+        )
+        card_response.raise_for_status()
+        agent_card_data = card_response.json()
+
+        # Parse JSON into AgentCard Pydantic model
+        agent_card = AgentCard(**agent_card_data)
+
+        # 2. Create A2A client
+        a2a_client = A2AClient(
+            httpx_client=client,
+            agent_card=agent_card,  # Must be AgentCard object, not dict
+            url=f"http://localhost:2024/a2a/{agent_id}"
+        )
+
+        # 3. Prepare message
+        send_message_payload = {
+            'message': {
+                'role': 'user',
+                'parts': [{'kind': 'text', 'text': message}],
+                'messageId': f"msg_{task_id}",
+            },
+            'thread': {
+                'threadId': f"thread_{task_id}"
+            }
+        }
+
+        # 4. Create request
+        request = SendMessageRequest(
+            id=task_id,
+            params=MessageSendParams(**send_message_payload)
+        )
+
+        # 5. Send message (JSON-RPC handled automatically)
+        response = await a2a_client.send_message(
+            request,
+            http_kwargs={'timeout': 300.0}
+        )
+
+        # 6. Extract result from response
+        # SendMessageResponse is a RootModel wrapping either error or success
+        from a2a.types import SendMessageSuccessResponse, Message
+
+        if isinstance(response.root, SendMessageSuccessResponse):
+            success_response = response.root
+            result = success_response.result  # Can be Task or Message
+
+            if isinstance(result, Message):
+                # Extract text from message parts
+                if result.parts:
+                    text_parts = [
+                        part.text
+                        for part in result.parts
+                        if hasattr(part, 'kind') and part.kind == 'text'
+                    ]
+                    return "\n".join(text_parts)
+
+            return str(result)
+        else:
+            # Error response
+            raise Exception(f"A2A error: {response.root.error}")
+```
+
+### SDK Advantages
+
+✅ **Automatic JSON-RPC handling** - No need to construct `jsonrpc`, `method`, `params` manually
+✅ **Type-safe message building** - Pydantic models prevent errors
+✅ **Built-in error handling** - `A2AClientHTTPError`, `A2AClientJSONError`
+✅ **Agent card resolution** - Automatic fetching and parsing
+✅ **Helper functions** - `create_text_message_object()` for quick messages
+✅ **Streaming support** - `send_message_streaming()` for real-time responses
+
+### LangGraph-Specific: Agent Card Fetching
+
+**Important:** LangGraph Server uses query parameters for agent cards, not path-based URLs:
+
+```python
+# ✅ Correct for LangGraph
+from a2a.types import AgentCard
+
+card_response = await client.get(
+    f"{langgraph_url}/.well-known/agent-card.json",
+    params={"assistant_id": agent_id},  # Query parameter!
+    timeout=10.0
+)
+card_response.raise_for_status()
+agent_card_data = card_response.json()
+
+# IMPORTANT: Parse into AgentCard object
+agent_card = AgentCard(**agent_card_data)
+
+# ❌ Wrong - passing dict directly causes AttributeError
+a2a_client = A2AClient(
+    httpx_client=client,
+    agent_card=agent_card_data,  # dict - will fail!
+    url=...
+)
+
+# ✅ Correct - pass AgentCard object
+a2a_client = A2AClient(
+    httpx_client=client,
+    agent_card=agent_card,  # AgentCard object
+    url=...
+)
+```
+
+**Common Errors:**
+- ❌ Using `A2ACardResolver` with path-based URLs → 404 errors
+- ❌ Passing raw dict to `A2AClient` → `'dict' object has no attribute 'supports_authenticated_extended_card'`
+- ❌ Accessing `response.result` directly → `'SendMessageResponse' object has no attribute 'result'`
+
+**Correct Response Access:**
+`SendMessageResponse` is a Pydantic `RootModel` that wraps either a success or error response:
+```python
+from a2a.types import SendMessageSuccessResponse
+
+if isinstance(response.root, SendMessageSuccessResponse):
+    success_response = response.root
+    result = success_response.result  # Now you can access .result
+else:
+    error_response = response.root
+    # Handle error
+```
+
+The `A2ACardResolver` is designed for standard A2A servers that use path-based card URLs. LangGraph uses a query parameter approach instead, and requires manual parsing of the response into an `AgentCard` Pydantic model.
+
+### Helper Functions
+
+The SDK provides convenience functions:
+
+```python
+from a2a.client import create_text_message_object
+
+# Quick message creation
+message = create_text_message_object(
+    role='user',  # or 'agent'
+    content='Your message here'
+)
+```
+
+### Error Handling with SDK
+
+```python
+from a2a.client import A2AClientHTTPError, A2AClientJSONError
+
+try:
+    response = await a2a_client.send_message(request)
+except A2AClientHTTPError as e:
+    # Handle HTTP errors (4xx, 5xx)
+    logger.error(f"HTTP error: {e}")
+except A2AClientJSONError as e:
+    # Handle JSON parsing errors
+    logger.error(f"JSON error: {e}")
+except httpx.TimeoutException:
+    # Handle timeouts
+    logger.error("Request timed out")
+```
+
+## Manual JSON-RPC Implementation (Legacy)
+
+If you need to understand the underlying protocol or can't use the SDK, here's how to construct requests manually.
+
 ## Request Format
 
 ### Correct A2A Request (JSON-RPC 2.0)
@@ -340,6 +539,8 @@ The subordinate agent must:
 
 ## References
 
+- [A2A Python SDK Documentation](https://a2a-protocol.org/latest/sdk/python/api/a2a.client.html)
+- [A2A SDK PyPI Package](https://pypi.org/project/a2a-sdk/)
 - [LangGraph A2A Documentation](https://docs.langchain.com/langsmith/server-a2a)
 - [JSON-RPC 2.0 Specification](https://www.jsonrpc.org/specification)
 - [A2A Protocol by Google](https://github.com/google/agent-to-agent)
@@ -347,12 +548,28 @@ The subordinate agent must:
 ## Summary
 
 **Key Takeaways:**
-- ✅ A2A uses JSON-RPC 2.0, not REST format
-- ✅ Request must have: `jsonrpc`, `id`, `method`, `params`
-- ✅ Message content goes in `params.message.parts` array
-- ✅ Each part has `kind` ("text") and content field
-- ✅ Response has `result` (success) or `error` (failure)
-- ✅ Extract text from `result.message.parts[].text`
+- ✅ **Use the a2a-sdk** for cleaner, more maintainable code
+- ✅ SDK handles JSON-RPC 2.0 protocol automatically
+- ✅ Type-safe message construction with Pydantic models
+- ✅ Built-in error handling (`A2AClientHTTPError`, `A2AClientJSONError`)
+- ✅ Automatic agent card resolution
+- ✅ Helper functions like `create_text_message_object()`
 
-**Before (Broken):** REST-style request → 400 Bad Request
-**After (Fixed):** JSON-RPC 2.0 format → Successful agent communication
+**Evolution:**
+1. ❌ **Initial (Broken):** REST-style request → 400 Bad Request
+2. ✅ **Fixed:** Manual JSON-RPC 2.0 → Works but verbose
+3. ✅✅ **Current (SDK):** a2a-sdk → Clean, type-safe, maintainable
+
+**Installation:**
+```bash
+uv sync  # Dependencies already in pyproject.toml
+```
+
+**Quick Example:**
+```python
+from a2a.client import A2AClient, A2ACardResolver
+from a2a.types import SendMessageRequest, MessageSendParams
+
+# Create client and send message
+response = await a2a_client.send_message(request)
+```
