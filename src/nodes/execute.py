@@ -251,22 +251,26 @@ Your specific task: {task_description}
 Please complete this task and provide your findings.
 """
 
-    # Prepare A2A request
+    # Prepare A2A request (JSON-RPC 2.0 format)
     a2a_request = {
-        "input": {
-            "messages": [
-                {
-                    "role": "user",
-                    "content": agent_message
-                }
-            ]
-        },
-        "config": {
-            "configurable": {
-                "thread_id": f"router_task_{task['id']}"
+        "jsonrpc": "2.0",
+        "id": task['id'],
+        "method": "message/send",
+        "params": {
+            "message": {
+                "role": "user",
+                "parts": [
+                    {
+                        "kind": "text",
+                        "text": agent_message
+                    }
+                ]
+            },
+            "messageId": f"msg_{task['id']}",
+            "thread": {
+                "threadId": f"router_task_{task['id']}"
             }
-        },
-        "stream_mode": "values"
+        }
     }
 
     try:
@@ -279,21 +283,38 @@ Please complete this task and provide your findings.
 
         response.raise_for_status()
 
-        # Parse response
-        # A2A returns streaming values, get the last one
+        # Parse JSON-RPC 2.0 response
         response_data = response.json()
 
-        # Extract final message from agent
-        # Response format: {"messages": [...], ...}
+        # Extract result from JSON-RPC response
+        # Response format: {"jsonrpc": "2.0", "id": "...", "result": {...}}
         agent_result = "No response from agent"
         if isinstance(response_data, dict):
-            messages = response_data.get("messages", [])
-            if messages:
-                last_message = messages[-1]
-                if isinstance(last_message, dict):
-                    agent_result = last_message.get("content", str(last_message))
+            # Check for JSON-RPC error
+            if "error" in response_data:
+                error_info = response_data["error"]
+                error_msg = error_info.get("message", str(error_info))
+                raise Exception(f"A2A agent returned error: {error_msg}")
+
+            # Extract result from JSON-RPC response
+            result = response_data.get("result", {})
+
+            # The result should contain message parts
+            if isinstance(result, dict):
+                message = result.get("message", {})
+                parts = message.get("parts", [])
+
+                # Extract text from parts
+                text_parts = []
+                for part in parts:
+                    if isinstance(part, dict) and part.get("kind") == "text":
+                        text_parts.append(part.get("text", ""))
+
+                if text_parts:
+                    agent_result = "\n".join(text_parts)
                 else:
-                    agent_result = str(last_message)
+                    # Fallback: try to extract any content
+                    agent_result = str(result)
 
         logger.info(f"Agent {task['agent_name']} completed: {agent_result[:100]}...")
 

@@ -159,8 +159,22 @@ IMPORTANT:
     try:
         response = await llm.ainvoke(messages)
 
-        # Parse response
-        plan_data = json.loads(response.content)
+        # Strip markdown code blocks if present (Claude often wraps JSON in ```)
+        response_content = response.content.strip()
+
+        # Remove ```json or ``` fences if present
+        if response_content.startswith("```"):
+            # Find the first newline (after ```json or ```)
+            first_newline = response_content.find('\n')
+            if first_newline != -1:
+                # Find the last ```
+                last_fence = response_content.rfind('```')
+                if last_fence > first_newline:
+                    # Extract content between fences
+                    response_content = response_content[first_newline + 1:last_fence].strip()
+
+        # Parse response as JSON
+        plan_data = json.loads(response_content)
 
         analysis = plan_data.get("analysis", "")
         execution_strategy = plan_data.get("execution_strategy", "sequential")
@@ -223,7 +237,15 @@ IMPORTANT:
 
     except json.JSONDecodeError as e:
         logger.error(f"Failed to parse LLM response as JSON: {e}")
-        logger.error(f"Raw response: {response.content}")
+        logger.error(f"Raw response (first 500 chars): {response.content[:500]}")
+        logger.error(f"Response type: {type(response.content)}")
+
+        # Try to show where parsing failed
+        try:
+            # This will show the position of the error
+            logger.error(f"JSON error details: {str(e)}")
+        except:
+            pass
 
         # Return empty plan on error
         return {
