@@ -7,11 +7,14 @@ are incomplete or if tasks failed.
 """
 
 import os
+import logging
 import json
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from ..models.router_state import RouterState
 from ..llm.factory import LLMFactory
+
+logger = logging.getLogger(__name__)
 
 
 def analyze_results(state: RouterState) -> dict:
@@ -42,11 +45,11 @@ def analyze_results(state: RouterState) -> dict:
     replan_count = state.get("replan_count", 0)
     max_replans = state.get("max_replans", 2)
 
-    print(f"[Analyze] Evaluating {len(task_results)} task results (replan count: {replan_count}/{max_replans})")
+    logger.info(f"Evaluating {len(task_results)} task results (replan count: {replan_count}/{max_replans})")
 
     # Check if max replans reached
     if replan_count >= max_replans:
-        print("[Analyze] Max replans reached, proceeding to aggregation")
+        logger.info("Max replans reached, proceeding to aggregation")
         return {
             "need_replan": False,
             "replan_reason": None
@@ -55,7 +58,7 @@ def analyze_results(state: RouterState) -> dict:
     # Quick check: Any failed tasks?
     failed_tasks = [task for task in task_results if task["status"] == "failed"]
     if failed_tasks:
-        print(f"[Analyze] Found {len(failed_tasks)} failed tasks")
+        logger.info(f"Found {len(failed_tasks)} failed tasks")
 
     # Build results summary for LLM
     results_summary = "\n".join([
@@ -126,8 +129,8 @@ Respond with JSON:
         reasoning = analysis_result.get("reasoning", "")
         replan_strategy = analysis_result.get("replan_strategy")
 
-        print(f"[Analyze] Sufficiency: {'YES' if is_sufficient else 'NO'}")
-        print(f"[Analyze] Reasoning: {reasoning}")
+        logger.info(f"Sufficiency: {'YES' if is_sufficient else 'NO'}")
+        logger.info(f"Reasoning: {reasoning}")
 
         if is_sufficient:
             return {
@@ -135,7 +138,7 @@ Respond with JSON:
                 "replan_reason": None
             }
         else:
-            print(f"[Analyze] Triggering replan: {replan_strategy}")
+            logger.info(f"Triggering replan: {replan_strategy}")
             return {
                 "need_replan": True,
                 "replan_reason": replan_strategy or reasoning,
@@ -143,7 +146,7 @@ Respond with JSON:
             }
 
     except json.JSONDecodeError as e:
-        print(f"[Analyze] Error: Failed to parse LLM response: {e}")
+        logger.info(f"Error: Failed to parse LLM response: {e}")
         # On error, assume results are sufficient and proceed
         return {
             "need_replan": False,
@@ -151,7 +154,7 @@ Respond with JSON:
         }
 
     except Exception as e:
-        print(f"[Analyze] Error during analysis: {e}")
+        logger.info(f"Error during analysis: {e}")
         # On error, assume results are sufficient and proceed
         return {
             "need_replan": False,

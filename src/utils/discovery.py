@@ -5,10 +5,13 @@ Functions for discovering agents via LangGraph Server and fetching their capabil
 """
 
 import os
+import logging
 import httpx
 from typing import Dict
 
 from ..models.router_state import AgentCapability
+
+logger = logging.getLogger(__name__)
 
 
 # Fallback agent metadata for known agents
@@ -81,7 +84,7 @@ async def discover_agents_from_langgraph() -> Dict[str, AgentCapability]:
             search_response.raise_for_status()
             assistants = search_response.json()
 
-            print(f"[Discovery] Found {len(assistants)} assistants")
+            logger.info(f"Found {len(assistants)} assistants")
 
             # 2. Fetch capabilities for each agent
             agent_registry = {}
@@ -92,7 +95,7 @@ async def discover_agents_from_langgraph() -> Dict[str, AgentCapability]:
 
                 # Skip the router itself and task_breakdown (legacy)
                 if graph_id in ["router", "task_breakdown"]:
-                    print(f"[Discovery] Skipping {graph_id} (not a subordinate agent)")
+                    logger.info(f"Skipping {graph_id} (not a subordinate agent)")
                     continue
 
                 try:
@@ -117,7 +120,7 @@ async def discover_agents_from_langgraph() -> Dict[str, AgentCapability]:
                             skills=metadata["skills"],
                             description=metadata["description"]
                         )
-                        print(f"[Discovery] Using fallback metadata for {graph_id}")
+                        logger.info(f"Using fallback metadata for {graph_id}")
                     else:
                         # Extract from A2A card (for dynamically added agents)
                         skills = card.get("skills", [])
@@ -133,24 +136,24 @@ async def discover_agents_from_langgraph() -> Dict[str, AgentCapability]:
                         )
 
                     agent_registry[assistant_id] = capability
-                    print(f"[Discovery] Registered agent: {capability['name']} ({assistant_id})")
+                    logger.info(f"Registered agent: {capability['name']} ({assistant_id})")
 
                 except httpx.HTTPStatusError as e:
                     # Agent doesn't have A2A card endpoint - skip silently
                     if e.response.status_code == 404:
-                        print(f"[Discovery] Skipping {graph_id} (no A2A card endpoint)")
+                        logger.info(f"Skipping {graph_id} (no A2A card endpoint)")
                     else:
-                        print(f"[Discovery] Warning: HTTP {e.response.status_code} fetching card for {graph_id}")
+                        logger.warning(f"HTTP {e.response.status_code} fetching card for {graph_id}")
                     continue
                 except Exception as e:
-                    print(f"[Discovery] Warning: Failed to fetch card for {graph_id}: {e}")
+                    logger.warning(f"Failed to fetch card for {graph_id}: {e}")
                     continue
 
-            print(f"[Discovery] Successfully registered {len(agent_registry)} agents")
+            logger.info(f"Successfully registered {len(agent_registry)} agents")
             return agent_registry
 
     except httpx.HTTPError as e:
-        print(f"[Discovery] Error: Failed to connect to LangGraph Server at {langgraph_url}: {e}")
+        logger.error(f"Failed to connect to LangGraph Server at {langgraph_url}: {e}")
         # Return empty registry rather than failing - allows testing without server
         return {}
 
@@ -162,5 +165,5 @@ async def refresh_agent_registry() -> Dict[str, AgentCapability]:
     Returns:
         Updated agent registry
     """
-    print("[Discovery] Refreshing agent registry...")
+    logger.info("Refreshing agent registry...")
     return await discover_agents_from_langgraph()

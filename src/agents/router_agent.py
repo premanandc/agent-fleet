@@ -6,6 +6,7 @@ This is the factory function that LangGraph Server calls to instantiate the agen
 """
 
 import uuid
+import logging
 import asyncio
 from typing import Literal
 from langgraph.graph import StateGraph, START, END
@@ -24,6 +25,8 @@ from ..nodes import (
 )
 from ..utils import discover_agents_from_langgraph
 
+logger = logging.getLogger(__name__)
+
 
 def create_router_graph(config: RunnableConfig = None):
     """
@@ -39,12 +42,12 @@ def create_router_graph(config: RunnableConfig = None):
         Compiled StateGraph ready for execution
     """
 
-    print("[Router] Initializing Router Agent...")
+    logger.info("Initializing Router Agent...")
 
     # Note: Agent discovery is now done lazily in the plan node
     # to avoid blocking during graph initialization
     agent_registry = {}
-    print("[Router] Agent discovery will occur during planning")
+    logger.info("Agent discovery will occur during planning")
 
     # Create state graph
     graph = StateGraph(RouterState)
@@ -159,7 +162,7 @@ def create_router_graph(config: RunnableConfig = None):
     # This is a workaround - ideally we'd pass via config in invoke()
     compiled_graph.agent_registry = agent_registry
 
-    print("[Router] Router Agent initialized successfully")
+    logger.info("Router Agent initialized successfully")
 
     return compiled_graph
 
@@ -203,14 +206,14 @@ def create_initial_state(user_message: str, mode: str = "auto", max_replans: int
 """
 Router Agent State Flow:
 
-START
-  │
-  ▼
+    START
+      │
+      ▼
 ┌─────────────┐
 │  VALIDATE   │ (Guardrails)
 └──────┬──────┘
        │
-       ├─[valid]───────────────────────┐
+       ├─[valid]────────────────────────┐
        │                                │
        ├─[invalid]───┐                  │
        │             ▼                  ▼
@@ -218,9 +221,9 @@ START
        │        │ REJECT  │        │   PLAN   │ (Task Breakdown)
        │        └────┬────┘        └─────┬────┘
        │             │                   │
-       │             ▼                   ├─[auto mode]──────────┐
+       │             ▼                   ├─[auto mode]───────────┐
        │            END                  │                       │
-       │                                 ├─[interactive/review]─┤
+       │                                 ├─[interactive/review]──┤
        │                                 │                       │
        │                                 │                  ┌────▼─────┐
        │                                 │                  │ APPROVAL │ (Human-in-loop)
@@ -240,7 +243,7 @@ START
        │                            │ ANALYZE  │ (Replan Decision)
        │                            └────┬─────┘
        │                                 │
-       │                                 ├─[need replan]──────┐
+       │                                 ├─[need replan]───────┐
        │                                 │                     │
        │◄────────────────────────────────┘                     │
        │                                                       │

@@ -9,12 +9,15 @@ Runtime: 5-10 seconds
 """
 
 import asyncio
+import logging
 import random
 from typing import Annotated
 from langchain_core.messages import BaseMessage, AIMessage
 from langgraph.graph.message import add_messages
 from langgraph.graph import StateGraph, START, END
 from langchain_core.runnables import RunnableConfig
+
+logger = logging.getLogger(__name__)
 
 
 class SlowAgentState(dict):
@@ -40,7 +43,7 @@ async def process_slow_task(state: SlowAgentState) -> dict:
 
     task_description = latest_message.content
 
-    print(f"[SlowAgent] Starting deep task: {task_description[:50]}...")
+    logger.info(f"Starting deep task: {task_description[:50]}...")
 
     # Simulate long processing with progress indicators
     processing_time = random.uniform(5.0, 10.0)
@@ -56,14 +59,14 @@ async def process_slow_task(state: SlowAgentState) -> dict:
     elapsed = 0
     for stage, proportion in stages:
         stage_time = processing_time * proportion
-        print(f"[SlowAgent]   {stage}... ({stage_time:.1f}s)")
+        logger.info(f"  {stage}... ({stage_time:.1f}s)")
         await asyncio.sleep(stage_time)
         elapsed += stage_time
 
     # Generate realistic response based on task keywords
     response = _generate_slow_response(task_description, processing_time)
 
-    print(f"[SlowAgent] Completed in {processing_time:.2f}s")
+    logger.info(f"Completed in {processing_time:.2f}s")
 
     return {
         "messages": [AIMessage(content=response)]
@@ -288,7 +291,7 @@ def create_slow_agent_graph(config: RunnableConfig = None):
         Compiled StateGraph ready for A2A invocation
     """
 
-    print("[SlowAgent] Initializing Slow Agent...")
+    logger.info("Initializing Slow Agent...")
 
     # Create simple linear graph
     graph = StateGraph(SlowAgentState)
@@ -303,7 +306,7 @@ def create_slow_agent_graph(config: RunnableConfig = None):
     # Compile without checkpointer (stateless for simplicity)
     compiled_graph = graph.compile()
 
-    print("[SlowAgent] Slow Agent initialized successfully")
+    logger.info("Slow Agent initialized successfully")
 
     return compiled_graph
 

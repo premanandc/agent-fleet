@@ -6,10 +6,13 @@ response for the user. This is the final node before returning to the user.
 """
 
 import os
+import logging
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 from ..models.router_state import RouterState
 from ..llm.factory import LLMFactory
+
+logger = logging.getLogger(__name__)
 
 
 def aggregate_results(state: RouterState) -> dict:
@@ -34,7 +37,7 @@ def aggregate_results(state: RouterState) -> dict:
     task_results = state.get("task_results", [])
     plan = state.get("plan")
 
-    print(f"[Aggregate] Synthesizing {len(task_results)} task results into final response")
+    logger.info(f"Synthesizing {len(task_results)} task results into final response")
 
     # Build task results summary
     results_summary = ""
@@ -108,7 +111,7 @@ Generate the final response:
         response = llm.invoke(messages)
         final_response = response.content
 
-        print(f"[Aggregate] Generated final response ({len(final_response)} chars)")
+        logger.info(f"Generated final response ({len(final_response)} chars)")
 
         # Add execution summary footer if there were failures
         if failed_count > 0:
@@ -123,7 +126,7 @@ Generate the final response:
         }
 
     except Exception as e:
-        print(f"[Aggregate] Error during aggregation: {e}")
+        logger.error(f"Error during aggregation: {e}")
 
         # Fallback: Create simple concatenation of results
         fallback_response = f"# Results for: {original_request}\n\n"

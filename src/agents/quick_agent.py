@@ -9,12 +9,15 @@ Runtime: 1-2 seconds
 """
 
 import asyncio
+import logging
 import random
 from typing import Annotated
 from langchain_core.messages import BaseMessage, AIMessage
 from langgraph.graph.message import add_messages
 from langgraph.graph import StateGraph, START, END
 from langchain_core.runnables import RunnableConfig
+
+logger = logging.getLogger(__name__)
 
 
 class QuickAgentState(dict):
@@ -40,7 +43,7 @@ async def process_quick_task(state: QuickAgentState) -> dict:
 
     task_description = latest_message.content
 
-    print(f"[QuickAgent] Starting quick task: {task_description[:50]}...")
+    logger.info(f"Starting quick task: {task_description[:50]}...")
 
     # Simulate quick processing (1-2 seconds)
     processing_time = random.uniform(1.0, 2.0)
@@ -49,7 +52,7 @@ async def process_quick_task(state: QuickAgentState) -> dict:
     # Generate realistic response based on task keywords
     response = _generate_quick_response(task_description, processing_time)
 
-    print(f"[QuickAgent] Completed in {processing_time:.2f}s")
+    logger.info(f"Completed in {processing_time:.2f}s")
 
     return {
         "messages": [AIMessage(content=response)]
@@ -150,7 +153,7 @@ def create_quick_agent_graph(config: RunnableConfig = None):
         Compiled StateGraph ready for A2A invocation
     """
 
-    print("[QuickAgent] Initializing Quick Agent...")
+    logger.info("Initializing Quick Agent...")
 
     # Create simple linear graph
     graph = StateGraph(QuickAgentState)
@@ -165,7 +168,7 @@ def create_quick_agent_graph(config: RunnableConfig = None):
     # Compile without checkpointer (stateless for simplicity)
     compiled_graph = graph.compile()
 
-    print("[QuickAgent] Quick Agent initialized successfully")
+    logger.info("Quick Agent initialized successfully")
 
     return compiled_graph
 

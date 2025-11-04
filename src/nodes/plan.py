@@ -7,6 +7,7 @@ requirements to available agent capabilities.
 """
 
 import os
+import logging
 import json
 import uuid
 from datetime import datetime
@@ -16,6 +17,8 @@ from langchain_core.runnables import RunnableConfig
 from ..models.router_state import RouterState, Plan, Task
 from ..llm.factory import LLMFactory
 from ..utils.discovery import discover_agents_from_langgraph
+
+logger = logging.getLogger(__name__)
 
 
 async def generate_plan(state: RouterState, config: RunnableConfig) -> dict:
@@ -38,14 +41,14 @@ async def generate_plan(state: RouterState, config: RunnableConfig) -> dict:
     """
 
     user_request = state.get("original_request", "")
-    print(f"[Plan] Generating plan for: {user_request[:100]}...")
+    logger.info(f"Generating plan for: {user_request[:100]}...")
 
     # Discover agents dynamically
-    print("[Plan] Discovering available agents...")
+    logger.info("Discovering available agents...")
     agent_registry = await discover_agents_from_langgraph()
 
     if not agent_registry:
-        print("[Plan] Warning: No agents available in registry")
+        logger.warning("No agents available in registry")
         # Return a plan that indicates no agents available
         return {
             "plan": Plan(
@@ -163,9 +166,9 @@ IMPORTANT:
         execution_strategy = plan_data.get("execution_strategy", "sequential")
         raw_tasks = plan_data.get("tasks", [])
 
-        print(f"[Plan] Analysis: {analysis}")
-        print(f"[Plan] Strategy: {execution_strategy}")
-        print(f"[Plan] Tasks: {len(raw_tasks)}")
+        logger.info(f"Analysis: {analysis}")
+        logger.info(f"Strategy: {execution_strategy}")
+        logger.info(f"Tasks: {len(raw_tasks)}")
 
         # Build Task objects with generated IDs
         tasks = []
@@ -180,7 +183,7 @@ IMPORTANT:
 
             # Validate agent exists
             if agent_id not in agent_registry:
-                print(f"[Plan] Warning: Agent {agent_id} not found in registry, skipping task")
+                logger.warning(f"Agent {agent_id} not found in registry, skipping task")
                 continue
 
             task = Task(
@@ -209,9 +212,9 @@ IMPORTANT:
             analysis=analysis
         )
 
-        print(f"[Plan] Generated plan with {len(tasks)} tasks")
+        logger.info(f"Generated plan with {len(tasks)} tasks")
         for task in tasks:
-            print(f"  - {task['description']} → {task['agent_name']}")
+            logger.info(f"  - {task['description']} → {task['agent_name']}")
 
         return {
             "plan": plan,
@@ -219,8 +222,8 @@ IMPORTANT:
         }
 
     except json.JSONDecodeError as e:
-        print(f"[Plan] Error: Failed to parse LLM response as JSON: {e}")
-        print(f"[Plan] Raw response: {response.content}")
+        logger.error(f"Failed to parse LLM response as JSON: {e}")
+        logger.error(f"Raw response: {response.content}")
 
         # Return empty plan on error
         return {
@@ -234,7 +237,7 @@ IMPORTANT:
         }
 
     except Exception as e:
-        print(f"[Plan] Error during planning: {e}")
+        logger.error(f"Error during planning: {e}")
 
         return {
             "plan": Plan(

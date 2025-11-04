@@ -6,10 +6,13 @@ Uses LLM-based classification to determine if the request is appropriate.
 """
 
 import os
+import logging
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from ..models.router_state import RouterState
 from ..llm.factory import LLMFactory
+
+logger = logging.getLogger(__name__)
 
 
 def validate_request(state: RouterState) -> dict:
@@ -37,7 +40,7 @@ def validate_request(state: RouterState) -> dict:
         }
 
     user_request = latest_message.content
-    print(f"[Validate] Checking request: {user_request[:100]}...")
+    logger.info(f"Checking request: {user_request[:100]}...")
 
     # Build validation prompt
     validation_prompt = f"""You are a guardrail system for the ITEP (IT Engineering Productivity) Agentic AI Platform.
@@ -101,7 +104,7 @@ Respond with JSON:
         is_valid = validation_result.get("is_valid", False)
         reasoning = validation_result.get("reasoning", "")
 
-        print(f"[Validate] Result: {'VALID' if is_valid else 'INVALID'} - {reasoning}")
+        logger.info(f"Result: {'VALID' if is_valid else 'INVALID'} - {reasoning}")
 
         if is_valid:
             return {
@@ -117,7 +120,7 @@ Respond with JSON:
             }
 
     except Exception as e:
-        print(f"[Validate] Error during validation: {e}")
+        logger.error(f"Error during validation: {e}")
         # Default to rejecting on error
         return {
             "is_valid": False,

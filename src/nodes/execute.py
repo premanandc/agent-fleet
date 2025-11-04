@@ -7,12 +7,15 @@ and manages dependencies.
 """
 
 import os
+import logging
 import asyncio
 import httpx
 from typing import Dict, List
 from langchain_core.runnables import RunnableConfig
 
 from ..models.router_state import RouterState, Task
+
+logger = logging.getLogger(__name__)
 
 
 async def execute_tasks(state: RouterState, config: RunnableConfig) -> dict:
@@ -38,7 +41,7 @@ async def execute_tasks(state: RouterState, config: RunnableConfig) -> dict:
 
     plan = state.get("plan")
     if not plan:
-        print("[Execute] Error: No plan to execute")
+        logger.error("No plan to execute")
         return {
             "task_results": [],
             "current_task_index": 0
@@ -48,7 +51,7 @@ async def execute_tasks(state: RouterState, config: RunnableConfig) -> dict:
     execution_strategy = plan["execution_strategy"]
     original_request = state.get("original_request", "")
 
-    print(f"[Execute] Starting execution of {len(tasks)} tasks ({execution_strategy} mode)")
+    logger.info(f"Starting execution of {len(tasks)} tasks ({execution_strategy} mode)")
 
     # Get LangGraph server URL from config
     langgraph_url = os.getenv("LANGGRAPH_SERVER_URL", "http://localhost:2024")
@@ -65,10 +68,10 @@ async def execute_tasks(state: RouterState, config: RunnableConfig) -> dict:
     # Merge results with any previous results
     all_results = list(completed_tasks.values()) + results
 
-    print(f"[Execute] Completed {len(results)} tasks")
+    logger.info(f"Completed {len(results)} tasks")
     for task in results:
         status_icon = "✓" if task["status"] == "completed" else "✗"
-        print(f"  {status_icon} {task['description']} - {task['status']}")
+        logger.info(f"  {status_icon} {task['description']} - {task['status']}")
 
     return {
         "task_results": all_results,
@@ -89,7 +92,7 @@ async def _execute_parallel(
     Tasks with unmet dependencies are skipped.
     """
 
-    print("[Execute] Using parallel execution strategy")
+    logger.info("Using parallel execution strategy")
 
     results = []
 
@@ -101,10 +104,10 @@ async def _execute_parallel(
     ]
 
     if not ready_tasks:
-        print("[Execute] No tasks ready to execute (all completed or dependencies unmet)")
+        logger.info("No tasks ready to execute (all completed or dependencies unmet)")
         return results
 
-    print(f"[Execute] Executing {len(ready_tasks)} tasks in parallel")
+    logger.info(f"Executing {len(ready_tasks)} tasks in parallel")
 
     # Execute ready tasks in parallel using asyncio.gather
     async with httpx.AsyncClient() as client:
@@ -120,7 +123,7 @@ async def _execute_parallel(
         for i, result in enumerate(task_results):
             task = ready_tasks[i]
             if isinstance(result, Exception):
-                print(f"[Execute] Error executing task {task['id']}: {result}")
+                logger.error(f"Error executing task {task['id']}: {result}")
                 # Mark task as failed
                 failed_task = task.copy()
                 failed_task["status"] = "failed"
@@ -146,7 +149,7 @@ async def _execute_sequential(
     Stops execution if a critical task fails (optional enhancement).
     """
 
-    print("[Execute] Using sequential execution strategy")
+    logger.info("Using sequential execution strategy")
 
     results = []
 
@@ -154,12 +157,12 @@ async def _execute_sequential(
         for task in tasks:
             # Skip already completed tasks
             if task["id"] in completed_tasks:
-                print(f"[Execute] Skipping already completed task: {task['description']}")
+                logger.info(f"Skipping already completed task: {task['description']}")
                 continue
 
             # Check dependencies
             if not _are_dependencies_met(task, completed_tasks):
-                print(f"[Execute] Skipping task with unmet dependencies: {task['description']}")
+                logger.info(f"Skipping task with unmet dependencies: {task['description']}")
                 # Mark as failed due to unmet dependencies
                 failed_task = task.copy()
                 failed_task["status"] = "failed"
@@ -168,7 +171,7 @@ async def _execute_sequential(
                 continue
 
             # Execute task
-            print(f"[Execute] Executing task: {task['description']}")
+            logger.info(f"Executing task: {task['description']}")
             try:
                 result = await _invoke_agent(task, original_request, completed_tasks, langgraph_url, client)
                 results.append(result)
@@ -180,7 +183,7 @@ async def _execute_sequential(
                 #     break
 
             except Exception as e:
-                print(f"[Execute] Error executing task {task['id']}: {e}")
+                logger.error(f"Error executing task {task['id']}: {e}")
                 failed_task = task.copy()
                 failed_task["status"] = "failed"
                 failed_task["error"] = str(e)
@@ -228,7 +231,7 @@ async def _invoke_agent(
     agent_id = task["agent_id"]
     task_description = task["description"]
 
-    print(f"[Execute] Invoking agent {task['agent_name']} for: {task_description}")
+    logger.info(f"Invoking agent {task['agent_name']} for: {task_description}")
 
     # Build context from dependencies
     dependency_context = ""
@@ -292,7 +295,7 @@ Please complete this task and provide your findings.
                 else:
                     agent_result = str(last_message)
 
-        print(f"[Execute] Agent {task['agent_name']} completed: {agent_result[:100]}...")
+        logger.info(f"Agent {task['agent_name']} completed: {agent_result[:100]}...")
 
         # Update task with result
         completed_task = task.copy()
@@ -303,7 +306,7 @@ Please complete this task and provide your findings.
         return completed_task
 
     except httpx.TimeoutException:
-        print(f"[Execute] Agent {task['agent_name']} timed out")
+        logger.error(f"Agent {task['agent_name']} timed out")
         failed_task = task.copy()
         failed_task["status"] = "failed"
         failed_task["error"] = "Agent execution timed out (5 minutes)"
@@ -311,7 +314,7 @@ Please complete this task and provide your findings.
         return failed_task
 
     except httpx.HTTPStatusError as e:
-        print(f"[Execute] HTTP error invoking agent {task['agent_name']}: {e}")
+        logger.error(f"HTTP error invoking agent {task['agent_name']}: {e}")
         failed_task = task.copy()
         failed_task["status"] = "failed"
         failed_task["error"] = f"HTTP {e.response.status_code}: {e.response.text}"
@@ -319,7 +322,7 @@ Please complete this task and provide your findings.
         return failed_task
 
     except Exception as e:
-        print(f"[Execute] Error invoking agent {task['agent_name']}: {e}")
+        logger.error(f"Error invoking agent {task['agent_name']}: {e}")
         failed_task = task.copy()
         failed_task["status"] = "failed"
         failed_task["error"] = str(e)

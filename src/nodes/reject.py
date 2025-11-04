@@ -6,9 +6,12 @@ This node is reached when the validation guardrails determine a request
 is not appropriate for the ITEP platform.
 """
 
+import logging
 from langchain_core.messages import AIMessage
 
 from ..models.router_state import RouterState
+
+logger = logging.getLogger(__name__)
 
 
 def reject_request(state: RouterState) -> dict:
@@ -24,7 +27,7 @@ def reject_request(state: RouterState) -> dict:
 
     rejection_reason = state.get("rejection_reason", "Request is not supported")
 
-    print(f"[Reject] Rejecting request: {rejection_reason}")
+    logger.info(f"Rejecting request: {rejection_reason}")
 
     # Create polite rejection message
     rejection_message = f"""I apologize, but I'm unable to help with this request.

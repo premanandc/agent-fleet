@@ -6,10 +6,13 @@ Uses LangGraph's interrupt mechanism to pause execution and wait
 for human approval before proceeding with task execution.
 """
 
+import logging
 from langchain_core.messages import AIMessage
 from langgraph.types import interrupt
 
 from ..models.router_state import RouterState
+
+logger = logging.getLogger(__name__)
 
 
 def await_approval(state: RouterState) -> dict:
@@ -36,7 +39,7 @@ def await_approval(state: RouterState) -> dict:
     plan = state.get("plan")
 
     if not plan:
-        print("[Approval] Warning: No plan to approve")
+        logger.info("Warning: No plan to approve")
         return {
             "plan_approved": False,
             "messages": [AIMessage(content="Error: No plan was generated to approve")]
@@ -60,8 +63,8 @@ def await_approval(state: RouterState) -> dict:
 
     if mode == "review":
         # REVIEW mode: Show plan, auto-approve after display
-        print("[Approval] REVIEW mode: Displaying plan for review")
-        print(plan_summary)
+        logger.info("REVIEW mode: Displaying plan for review")
+        logger.info(f"\n{plan_summary}")
 
         return {
             "plan_approved": True,
@@ -70,7 +73,7 @@ def await_approval(state: RouterState) -> dict:
 
     elif mode == "interactive":
         # INTERACTIVE mode: Show plan and wait for explicit approval
-        print("[Approval] INTERACTIVE mode: Waiting for user approval")
+        logger.info("INTERACTIVE mode: Waiting for user approval")
 
         # Present plan to user
         approval_message = AIMessage(content=plan_summary + "\n\nDo you approve this plan? (yes/no/modify)")
@@ -91,14 +94,14 @@ def await_approval(state: RouterState) -> dict:
         response_lower = str(user_response).lower().strip()
 
         if response_lower in ["yes", "y", "approve", "approved"]:
-            print("[Approval] Plan approved by user")
+            logger.info("Plan approved by user")
             return {
                 "plan_approved": True,
                 "messages": [AIMessage(content="✓ Plan approved. Proceeding with execution...")]
             }
 
         elif response_lower in ["no", "n", "reject", "rejected"]:
-            print("[Approval] Plan rejected by user")
+            logger.info("Plan rejected by user")
             return {
                 "plan_approved": False,
                 "need_replan": True,
@@ -108,7 +111,7 @@ def await_approval(state: RouterState) -> dict:
 
         else:
             # User wants to modify - trigger replan with their feedback
-            print(f"[Approval] User requested modifications: {user_response}")
+            logger.info(f"User requested modifications: {user_response}")
             return {
                 "plan_approved": False,
                 "need_replan": True,
@@ -119,7 +122,7 @@ def await_approval(state: RouterState) -> dict:
     else:
         # AUTO mode - should never reach here due to conditional edge
         # But handle it gracefully just in case
-        print("[Approval] AUTO mode: Auto-approving plan")
+        logger.info("AUTO mode: Auto-approving plan")
         return {
             "plan_approved": True,
             "messages": [AIMessage(content="✓ Plan auto-approved (auto mode)")]
