@@ -3,8 +3,7 @@
   "graphs": {
     "router": "src.agents.router_agent:create_router_graph",
     "quick_agent": "src.agents.quick_agent:create_quick_agent_graph",
-    "slow_agent": "src.agents.slow_agent:create_slow_agent_graph",
-    "task_breakdown": "src.agents.task_breakdown_a2a:create_task_breakdown_graph"
+    "slow_agent": "src.agents.slow_agent:create_slow_agent_graph"
   },
   "env": ".env"
 }

@@ -46,7 +46,7 @@ class RouterClient:
         print("-" * 70)
 
         # Known agents from langgraph.json
-        known_agents = ["router", "quick_agent", "slow_agent", "task_breakdown"]
+        known_agents = ["router", "quick_agent", "slow_agent"]
 
         for agent_id in known_agents:
             try:
