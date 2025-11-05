@@ -1,47 +1,20 @@
 # Agent Fleet
 
-A multi-agent orchestration system for the ITEP (IT Engineering Productivity) platform, featuring a Router Agent that intelligently delegates tasks to specialized subordinate agents.
+A multi-agent orchestration system for the ITEP (IT Engineering Productivity) platform, featuring a Router Agent that intelligently delegates tasks to specialized subordinate agents using the A2A (Agent-to-Agent) protocol.
 
 ## Features
 
 - **Router Agent**: Orchestrates and delegates tasks based on capabilities
 - **Multi-Agent Architecture**: QuickAgent for fast tasks, SlowAgent for deep analysis
 - **A2A Protocol**: Full Agent-to-Agent protocol support via LangGraph Server
+- **Dynamic Discovery**: Automatic agent detection via A2A agent cards
 - **Capability-Driven Routing**: Automatic agent selection based on skills and requirements
 - **LLM Provider Agnostic**: Supports both OpenAI and Anthropic models
 - **Execution Modes**: Auto, interactive, and review modes for different workflows
+- **Task Dependencies**: Support for sequential and parallel task execution
+- **Human-in-the-Loop**: Optional approval workflows for interactive mode
 
-## Project Structure
-
-```
-agent-fleet/
-├── src/
-│   ├── llm/
-│   │   └── factory.py              # LLM provider factory
-│   ├── models/
-│   │   └── router_state.py         # State definitions
-│   ├── utils/
-│   │   └── discovery.py            # Agent discovery utilities
-│   ├── nodes/
-│   │   ├── validate.py             # Request validation (guardrails)
-│   │   ├── reject.py               # Rejection handler
-│   │   ├── plan.py                 # Task planning and decomposition
-│   │   ├── approval.py             # Human-in-the-loop approval
-│   │   ├── execute.py              # Task execution via A2A
-│   │   ├── analyze.py              # Result sufficiency analysis
-│   │   └── aggregate.py            # Final response aggregation
-│   └── agents/
-│       ├── router_agent.py         # Main Router Agent
-│       ├── quick_agent.py          # Fast task agent (1-2s)
-│       └── slow_agent.py           # Deep analysis agent (5-10s)
-├── test_router_simple.py           # Simple Router test
-├── test_router_complete.py         # Complete test suite
-├── langgraph.json                  # LangGraph Server configuration
-├── pyproject.toml                  # Dependencies
-└── .env                            # API keys
-```
-
-## Setup
+## Quick Start
 
 ### 1. Install Dependencies
 
@@ -71,61 +44,44 @@ The server will start on `http://localhost:2024` with:
 - A2A endpoints: `http://localhost:2024/a2a/{assistant_id}`
 - Health check: `http://localhost:2024/ok`
 
-## Testing the Router Agent
-
-### Quick Test
+### 4. Test the Router
 
 ```bash
-python test_router_simple.py
+python test_router_simple.py       # Quick test
+python test_router_complete.py     # Complete test suite
 ```
 
-This runs a single test to verify the Router is working.
-
-### Complete Test Suite
-
-```bash
-python test_router_complete.py
-```
-
-This runs three test scenarios:
-1. **Quick validation task** - Should delegate to QuickAgent
-2. **Deep analysis task** - Should delegate to SlowAgent
-3. **Off-topic request** - Should be rejected by validation
-
-### Expected Behavior
-
-- ✅ **On-topic requests** are validated and processed
-- ✅ **Off-topic requests** are rejected with explanations
-- ✅ **Tasks are delegated** to appropriate subordinate agents based on capabilities
-- ✅ **Results are aggregated** into coherent final responses
-
-## Router Agent Architecture
-
-The Router uses a 7-node workflow:
+## Project Structure
 
 ```
-[Start] → [Validate] → [Plan] → [Approval] → [Execute] → [Analyze] → [Aggregate] → [End]
-            ↓                                                   ↓
-          [Reject]                                         [Re-plan if needed]
+agent-fleet/
+├── src/
+│   ├── llm/
+│   │   └── factory.py              # LLM provider factory
+│   ├── models/
+│   │   └── router_state.py         # State definitions
+│   ├── utils/
+│   │   └── discovery.py            # Agent discovery utilities
+│   ├── nodes/
+│   │   ├── validate.py             # Request validation (guardrails)
+│   │   ├── reject.py               # Rejection handler
+│   │   ├── plan.py                 # Task planning and decomposition
+│   │   ├── approval.py             # Human-in-the-loop approval
+│   │   ├── execute.py              # Task execution via A2A
+│   │   ├── analyze.py              # Result sufficiency analysis
+│   │   └── aggregate.py            # Final response aggregation
+│   └── agents/
+│       ├── router_agent.py         # Main Router Agent
+│       ├── quick_agent.py          # Fast task agent (1-2s)
+│       ├── slow_agent.py           # Deep analysis agent (5-10s)
+│       └── cards.py                # Agent card registry
+├── test_router_simple.py           # Simple Router test
+├── test_router_complete.py         # Complete test suite
+├── test_client.py                  # Manual client for testing
+├── langgraph.json                  # LangGraph Server configuration
+├── pyproject.toml                  # Dependencies
+└── .env                            # API keys
 ```
-
-### Nodes
-
-1. **Validate**: Guards against off-topic requests using LLM classification
-2. **Reject**: Handles rejected requests with helpful explanations
-3. **Plan**: Decomposes requests and matches tasks to agent capabilities
-4. **Approval**: Optional human-in-the-loop (interactive mode only)
-5. **Execute**: Delegates tasks to subordinate agents via A2A protocol
-6. **Analyze**: Evaluates if results are sufficient or need replanning
-7. **Aggregate**: Combines results into final response
-
-## Execution Modes
-
-Configure via `config.configurable.mode`:
-
-- **`auto`** (default): Fully autonomous, no approval needed
-- **`interactive`**: Pauses for plan approval before execution
-- **`review`**: Shows plan but auto-approves (transparency without blocking)
 
 ## Available Agents
 
@@ -140,15 +96,21 @@ The system includes these agents (registered in `langgraph.json`):
 - **Purpose**: Fast operations (syntax checks, quick validation)
 - **Capabilities**: `analysis`, `quick-check`, `validation`
 - **Response time**: 1-2 seconds
+- **A2A Endpoint**: `/a2a/{assistant_id}`
 
 ### SlowAgent (`slow_agent`)
 - **Purpose**: Deep analysis (SonarQube fixes, comprehensive reviews)
 - **Capabilities**: `deep-analysis`, `remediation`, `sonarqube`
 - **Response time**: 5-10 seconds
+- **A2A Endpoint**: `/a2a/{assistant_id}`
 
-### Task Breakdown Agent (`task_breakdown`)
-- **Purpose**: Legacy task decomposition agent
-- **Note**: Functionality absorbed into Router
+## Execution Modes
+
+Configure via `config.configurable.mode`:
+
+- **`auto`** (default): Fully autonomous, no approval needed
+- **`interactive`**: Pauses for plan approval before execution
+- **`review`**: Shows plan but auto-approves (transparency without blocking)
 
 ## Usage Examples
 
@@ -200,30 +162,82 @@ curl -X POST http://localhost:2024/runs/wait \
   }'
 ```
 
-## Version Compatibility
+### Streaming Results
 
-**Important**: The project is currently pinned to compatible versions:
+```python
+from langgraph_sdk import get_client
 
-- `langgraph-api==0.4.46` (not 0.5.x due to incompatibility issues)
-- `langgraph-runtime-inmem==0.14.1`
-- `langgraph-cli==0.4.6`
+async def stream_test():
+    client = get_client(url="http://localhost:2024")
 
-These versions are tested and working together. Do not upgrade to 0.5.x until the `FF_RICH_THREADS` compatibility issue is resolved upstream.
+    async for chunk in client.runs.stream(
+        None,
+        "router",
+        input={"messages": [{"role": "user", "content": "Analyze my code"}]},
+        stream_mode=["values"]
+    ):
+        if chunk.event == "values":
+            print(f"Update: {chunk.data.get('status', 'processing')}")
+```
+
+See `docs/STREAMING.md` for detailed streaming examples.
+
+## Testing the Router Agent
+
+### Quick Test
+
+```bash
+python test_router_simple.py
+```
+
+This runs a single test to verify the Router is working.
+
+### Complete Test Suite
+
+```bash
+python test_router_complete.py
+```
+
+This runs three test scenarios:
+1. **Quick validation task** - Should delegate to QuickAgent
+2. **Deep analysis task** - Should delegate to SlowAgent
+3. **Off-topic request** - Should be rejected by validation
+
+### Expected Behavior
+
+- ✅ **On-topic requests** are validated and processed
+- ✅ **Off-topic requests** are rejected with explanations
+- ✅ **Tasks are delegated** to appropriate subordinate agents based on capabilities
+- ✅ **Results are aggregated** into coherent final responses
+
+### Manual Testing
+
+Use the interactive client:
+
+```bash
+python test_client.py
+```
+
+This provides a menu-driven interface to test different scenarios.
 
 ## Configuration
 
-### LLM Models
-
-Default model is `claude-sonnet-4-20250514`. You can customize in `src/llm/factory.py` or via environment variables:
+### Environment Variables
 
 ```bash
+# Required
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Optional
+OPENAI_API_KEY=sk-...
+LANGGRAPH_SERVER_URL=http://localhost:2024  # Default
 LLM_PROVIDER=anthropic  # or "openai"
 LLM_MODEL=claude-sonnet-4-20250514  # Optional override
 ```
 
-### HTTP Client
+### LLM Models
 
-The implementation uses `httpx` for async HTTP calls, ensuring non-blocking I/O operations throughout the Router Agent and subordinate agent communication.
+Default model is `claude-sonnet-4-20250514`. You can customize in `src/llm/factory.py` or via environment variables.
 
 ### Agent Discovery
 
@@ -231,12 +245,22 @@ The Router dynamically discovers subordinate agents at planning time via LangGra
 
 1. **Automatic Discovery**: Calls `/assistants/search` to find all available agents
 2. **A2A Card Retrieval**: Fetches each agent's card via `/.well-known/agent-card.json?assistant_id={id}`
-3. **Filtering**: Automatically skips:
-   - The router itself (no self-delegation)
-   - Legacy agents like `task_breakdown`
-   - Agents without A2A card endpoints
-4. **Fallback Metadata**: For known agents (QuickAgent, SlowAgent), uses detailed capability metadata from `src/utils/discovery.py:AGENT_METADATA`
-5. **Dynamic Support**: Can discover and use new agents added to the system without code changes
+3. **Filtering**: Automatically skips the router itself (no self-delegation)
+4. **Dynamic Support**: Can discover and use new agents added to the system without code changes
+
+All agent metadata (name, description, capabilities, skills) is extracted from A2A agent cards with no hardcoded fallbacks.
+
+## Version Compatibility
+
+Current versions (tested and working together):
+
+- `langgraph==1.0.2`
+- `langgraph-api==0.5.4`
+- `langgraph-cli==0.4.7`
+- `langgraph-sdk==0.2.9`
+- `a2a-sdk>=0.3.10`
+
+These versions have been tested and verified to work correctly together. All packages are at their latest stable releases.
 
 ## Troubleshooting
 
@@ -245,18 +269,47 @@ The Router dynamically discovers subordinate agents at planning time via LangGra
 - Check API keys are set in `.env`
 - Verify versions: `uv pip list | grep langgraph`
 
-### "FF_RICH_THREADS" error
-- You're using incompatible versions (0.5.x)
-- Downgrade: `uv pip install 'langgraph-api==0.4.46'`
-- Update `pyproject.toml` to pin the version
+### Agent discovery fails
+- Verify LangGraph server is running: `curl http://localhost:2024/ok`
+- Check server logs for `/assistants/search` calls
+- Ensure agents have A2A agent cards defined
 
 ### "BlockingError" in logs
-- This should not occur anymore (code now uses async HTTP with httpx)
+- This should not occur (code uses async HTTP with httpx)
 - If you see this, ensure you've pulled the latest code with async refactoring
 
 ### JSON parsing errors in validation
 - Check server logs to see LLM responses
 - The code handles both raw JSON and code-block wrapped JSON
+
+### Tasks not executing
+- Check that agents are discovered: look for "Registered agent:" in logs
+- Verify agent IDs match between plan and discovery
+- Ensure A2A endpoints are accessible: `curl http://localhost:2024/a2a/{assistant_id}`
+
+## Architecture
+
+See `architecture.md` for detailed technical documentation including:
+- System context and container diagrams
+- Router workflow and node details
+- A2A protocol implementation
+- Planning system internals
+- State model and execution flow
+
+## Dependencies
+
+Core dependencies:
+- `langchain-core>=1.0.3` - LangChain abstractions
+- `langchain-anthropic>=1.0.1` - Anthropic integration
+- `langgraph>=1.0.2` - State machine framework
+- `langgraph-cli>=0.4.7` - CLI tools
+- `httpx>=0.27.0` - Async HTTP client
+- `a2a-sdk>=0.3.10` - A2A protocol SDK
+
+Development dependencies:
+- `langgraph-api==0.5.4` - LangGraph dev server
+- `langgraph-sdk>=0.2.9` - Python SDK for testing
+- `pytest>=8.4.2` - Testing framework
 
 ## Production Deployment
 
@@ -270,25 +323,17 @@ Make sure to:
 1. Configure proper checkpointing (PostgreSQL instead of MemorySaver)
 2. Set appropriate timeout values for production workloads
 3. Configure monitoring and logging
+4. Set up authentication and authorization
+5. Use environment-specific API keys
 
-## Dependencies
+## Contributing
 
-Core dependencies:
-- `langchain-core>=1.0.3` - LangChain abstractions
-- `langchain-anthropic>=1.0.1` - Anthropic integration
-- `langgraph>=1.0.2` - State machine framework
-- `langgraph-cli>=0.4.6` - CLI tools
-- `httpx>=0.27.0` - Async HTTP client
-
-Development dependencies:
-- `langgraph-api==0.4.46` - LangGraph dev server
-- `langgraph-sdk>=0.2.9` - Python SDK for testing
-- `pytest>=8.4.2` - Testing framework
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Run tests: `pytest`
+5. Submit a pull request
 
 ## License
 
 [Your license here]
-
-## Contributing
-
-[Your contributing guidelines here]
