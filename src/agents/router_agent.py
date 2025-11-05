@@ -13,6 +13,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.runnables import RunnableConfig
 
 from ..models.router_state import RouterState
+from ..models.router_interface import RouterInput, RouterOutput
 from ..nodes import (
     validate_request,
     reject_request,
@@ -20,7 +21,9 @@ from ..nodes import (
     await_approval,
     execute_tasks,
     analyze_results,
-    aggregate_results
+    aggregate_results,
+    transform_input,
+    transform_output
 )
 
 logger = logging.getLogger(__name__)
@@ -47,10 +50,23 @@ def create_router_graph(config: RunnableConfig = None):
     agent_registry = {}
     logger.info("Agent discovery will occur during planning")
 
-    # Create state graph
-    graph = StateGraph(RouterState)
+    # Create state graph with explicit input/output schemas
+    # - Internal state: RouterState (23 fields) - used between nodes
+    # - External input: RouterInput (2 fields) - what A2A/MCP clients send
+    # - External output: RouterOutput (1-3 fields) - what A2A/MCP clients receive
+    graph = StateGraph(
+        RouterState,          # Internal state (hidden from external clients)
+        input=RouterInput,    # External API input (clean interface)
+        output=RouterOutput   # External API output (clean interface)
+    )
 
     # ========== Add Nodes ==========
+
+    # Transformation nodes (external ↔ internal)
+    graph.add_node("transform_input", transform_input)
+    graph.add_node("transform_output", transform_output)
+
+    # Processing nodes (internal state)
     graph.add_node("validate", validate_request)
     graph.add_node("reject", reject_request)
     graph.add_node("plan", generate_plan)
@@ -93,8 +109,11 @@ def create_router_graph(config: RunnableConfig = None):
 
     # ========== Build Graph Flow ==========
 
-    # Entry point
-    graph.add_edge(START, "validate")
+    # Entry point: transform external input to internal state
+    graph.add_edge(START, "transform_input")
+
+    # After transformation: begin processing
+    graph.add_edge("transform_input", "validate")
 
     # After validation: route to plan or reject
     graph.add_conditional_edges(
@@ -106,8 +125,8 @@ def create_router_graph(config: RunnableConfig = None):
         }
     )
 
-    # Rejection path ends
-    graph.add_edge("reject", END)
+    # Rejection path: also transform output before ending
+    graph.add_edge("reject", "transform_output")
 
     # After planning: route to approval or execute (based on mode)
     graph.add_conditional_edges(
@@ -142,8 +161,11 @@ def create_router_graph(config: RunnableConfig = None):
         }
     )
 
-    # After aggregation: end
-    graph.add_edge("aggregate", END)
+    # After aggregation: transform to external output
+    graph.add_edge("aggregate", "transform_output")
+
+    # After transformation: end
+    graph.add_edge("transform_output", END)
 
     # ========== Compile Graph ==========
 

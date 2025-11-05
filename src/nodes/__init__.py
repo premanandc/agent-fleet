@@ -10,6 +10,7 @@ from .approval import await_approval
 from .execute import execute_tasks
 from .analyze import analyze_results
 from .aggregate import aggregate_results
+from .transform import transform_input, transform_output
 
 __all__ = [
     "validate_request",
@@ -19,4 +20,6 @@ __all__ = [
     "execute_tasks",
     "analyze_results",
     "aggregate_results",
+    "transform_input",
+    "transform_output",
 ]

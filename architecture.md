@@ -278,6 +278,29 @@ Synthesize a coherent final response that:
 
 ## State Model
 
+The Router Agent uses **three separate schemas** to properly separate external API from internal implementation:
+
+### Public Interface (External)
+
+**Input Schema** (`src/models/router_interface.py`):
+```python
+class RouterInput(TypedDict):
+    """What A2A/MCP clients send"""
+    messages: Annotated[list[BaseMessage], add_messages]  # Required
+    mode: NotRequired[Literal["auto", "interactive", "review"]]  # Optional
+```
+
+**Output Schema** (`src/models/router_interface.py`):
+```python
+class RouterOutput(TypedDict):
+    """What A2A/MCP clients receive"""
+    final_response: str
+    agents_used: NotRequired[list[str]]  # Optional metadata
+    execution_strategy: NotRequired[Literal["parallel", "sequential"]]  # Optional
+```
+
+### Internal State (Hidden)
+
 The Router Agent uses a typed state model defined in `src/models/router_state.py`:
 
 ```python
@@ -318,7 +341,48 @@ class RouterState(TypedDict):
     final_response: str
 ```
 
-### State Flow
+### How Schemas Work Together
+
+The Router uses LangGraph's ability to define separate input/output schemas:
+
+```python
+StateGraph(
+    RouterState,          # Internal: 23 fields (hidden from clients)
+    input=RouterInput,    # External: 2 fields (what clients send)
+    output=RouterOutput   # External: 1-3 fields (what clients receive)
+)
+```
+
+**Transformation Flow**:
+```
+External Client (A2A/MCP)
+    ↓
+[RouterInput: 2 fields] ← LangGraph validates
+    ↓
+transform_input() ← Expand to full state
+    ↓
+[RouterState: 23 fields] ← Internal nodes process
+    ↓ ↓ ↓
+validate → plan → execute → aggregate
+    ↓
+transform_output() ← Reduce to minimal output
+    ↓
+[RouterOutput: 1-3 fields] ← LangGraph serializes
+    ↓
+External Client (A2A/MCP)
+```
+
+**Transformation Nodes** (`src/nodes/transform.py`):
+- `transform_input()`: Converts `RouterInput` → `RouterState` (initializes all internal fields)
+- `transform_output()`: Converts `RouterState` → `RouterOutput` (extracts only public fields)
+
+**Benefits**:
+- **Encapsulation**: Internal state hidden from external clients
+- **Stability**: Can change internal implementation without breaking API
+- **Clarity**: Obvious what's needed (2 fields) and returned (1-3 fields)
+- **Clean API**: No confusion from 23 internal fields exposed
+
+### State Flow (Internal)
 
 1. **Initial State**: `messages` from user
 2. **After Validate**: `is_valid`, `validation_message` set
@@ -606,7 +670,27 @@ Agent descriptions in `langgraph.json` become MCP tool descriptions:
 
 ### Input Schema Generation
 
-LangGraph automatically generates the `inputSchema` from the agent's state definition (`RouterState` TypedDict). All fields from `RouterState` are exposed, but only `messages` and `config` are required for MCP clients.
+LangGraph automatically generates the `inputSchema` from the agent's input definition (`RouterInput` TypedDict). Only the public interface fields are exposed:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "messages": {
+      "type": "array",
+      "description": "User's request as A2A-compatible messages"
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["auto", "interactive", "review"],
+      "description": "Execution mode (default: auto)"
+    }
+  },
+  "required": ["messages"]
+}
+```
+
+Internal state fields (23 fields) are **not exposed** - only the 2 input fields are visible to MCP clients.
 
 ### Python Usage Example
 
