@@ -1,9 +1,18 @@
 {
   "dependencies": ["."],
   "graphs": {
-    "router": "src.agents.router_agent:create_router_graph",
-    "quick_agent": "src.agents.quick_agent:create_quick_agent_graph",
-    "slow_agent": "src.agents.slow_agent:create_slow_agent_graph"
+    "router": {
+      "path": "src.agents.router_agent:create_router_graph",
+      "description": "Intelligent orchestrator for ITEP platform. Analyzes requests, discovers available agents, decomposes tasks based on capabilities, coordinates parallel/sequential execution, and synthesizes results. Handles CI/CD, code quality, SonarQube, build analysis, and DevOps tasks."
+    },
+    "quick_agent": {
+      "path": "src.agents.quick_agent:create_quick_agent_graph",
+      "description": "Fast analysis agent for quick validation tasks (1-2s response time). Capabilities: syntax checking, quick code validation, style checks."
+    },
+    "slow_agent": {
+      "path": "src.agents.slow_agent:create_slow_agent_graph",
+      "description": "Deep analysis agent for comprehensive code review (5-10s response time). Capabilities: SonarQube remediation, comprehensive analysis, security scanning."
+    }
   },
   "env": ".env"
 }

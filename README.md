@@ -6,7 +6,7 @@ A multi-agent orchestration system for the ITEP (IT Engineering Productivity) pl
 
 - **Router Agent**: Orchestrates and delegates tasks based on capabilities
 - **Multi-Agent Architecture**: QuickAgent for fast tasks, SlowAgent for deep analysis
-- **A2A Protocol**: Full Agent-to-Agent protocol support via LangGraph Server
+- **Dual Protocol Support**: Both A2A (Agent-to-Agent) and MCP (Model Context Protocol)
 - **Dynamic Discovery**: Automatic agent detection via A2A agent cards
 - **Capability-Driven Routing**: Automatic agent selection based on skills and requirements
 - **LLM Provider Agnostic**: Supports both OpenAI and Anthropic models
@@ -42,6 +42,7 @@ uv run langgraph dev --no-browser
 The server will start on `http://localhost:2024` with:
 - API Documentation: `http://localhost:2024/docs`
 - A2A endpoints: `http://localhost:2024/a2a/{assistant_id}`
+- MCP endpoint: `http://localhost:2024/mcp`
 - Health check: `http://localhost:2024/ok`
 
 ### 4. Test the Router
@@ -182,6 +183,38 @@ async def stream_test():
 
 See `docs/STREAMING.md` for detailed streaming examples.
 
+### Using MCP (Model Context Protocol)
+
+The Router is automatically exposed as an MCP tool:
+
+```python
+import httpx
+import asyncio
+
+async def call_via_mcp():
+    url = "http://localhost:2024/mcp/call_tool"
+
+    payload = {
+        "name": "router",
+        "arguments": {
+            "messages": [
+                {"role": "user", "content": "Fix SonarQube violations"}
+            ],
+            "config": {
+                "configurable": {"mode": "auto"}
+            }
+        }
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(url, json=payload, timeout=120.0)
+        return response.json()
+
+asyncio.run(call_via_mcp())
+```
+
+See `docs/MCP_INTEGRATION.md` for complete MCP documentation including Claude Desktop integration.
+
 ## Testing the Router Agent
 
 ### Quick Test
@@ -219,6 +252,19 @@ python test_client.py
 ```
 
 This provides a menu-driven interface to test different scenarios.
+
+### MCP Endpoint Testing
+
+Test the MCP (Model Context Protocol) endpoint:
+
+```bash
+python test_mcp_endpoint.py
+```
+
+This verifies:
+- MCP tools list endpoint
+- Router tool schema
+- MCP tool invocation
 
 ## Configuration
 
@@ -289,12 +335,14 @@ These versions have been tested and verified to work correctly together. All pac
 
 ## Architecture
 
-See `architecture.md` for detailed technical documentation including:
-- System context and container diagrams
-- Router workflow and node details
-- A2A protocol implementation
-- Planning system internals
-- State model and execution flow
+The Router Agent is simultaneously available via two protocols:
+- **A2A (Agent-to-Agent)**: Full-featured protocol for agent communication
+- **MCP (Model Context Protocol)**: Simple tool interface for LLM clients
+
+See technical documentation:
+- `architecture.md` - System architecture, workflow, A2A protocol, planning system
+- `docs/MCP_INTEGRATION.md` - MCP endpoint usage, Claude Desktop integration
+- `docs/STREAMING.md` - Streaming examples and patterns
 
 ## Dependencies
 
