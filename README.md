@@ -185,35 +185,42 @@ See `docs/STREAMING.md` for detailed streaming examples.
 
 ### Using MCP (Model Context Protocol)
 
-The Router is automatically exposed as an MCP tool:
+The Router is automatically exposed as an MCP tool using JSON-RPC 2.0:
 
 ```python
 import httpx
 import asyncio
 
 async def call_via_mcp():
-    url = "http://localhost:2024/mcp/call_tool"
+    url = "http://localhost:2024/mcp/"
 
+    # JSON-RPC 2.0 format
     payload = {
-        "name": "router",
-        "arguments": {
-            "messages": [
-                {"role": "user", "content": "Fix SonarQube violations"}
-            ],
-            "config": {
-                "configurable": {"mode": "auto"}
+        "jsonrpc": "2.0",
+        "id": "1",
+        "method": "tools/call",
+        "params": {
+            "name": "router",
+            "arguments": {
+                "messages": [
+                    {"role": "user", "content": "Fix SonarQube violations"}
+                ],
+                "config": {
+                    "configurable": {"mode": "auto"}
+                }
             }
         }
     }
 
     async with httpx.AsyncClient() as client:
         response = await client.post(url, json=payload, timeout=120.0)
-        return response.json()
+        result = response.json()
+        return result.get("result")  # JSON-RPC result field
 
 asyncio.run(call_via_mcp())
 ```
 
-See `docs/MCP_INTEGRATION.md` for complete MCP documentation including Claude Desktop integration.
+See `architecture.md` (MCP Protocol Implementation section) for complete technical documentation including Claude Desktop integration and JSON-RPC protocol details.
 
 ## Testing the Router Agent
 
@@ -340,8 +347,7 @@ The Router Agent is simultaneously available via two protocols:
 - **MCP (Model Context Protocol)**: Simple tool interface for LLM clients
 
 See technical documentation:
-- `architecture.md` - System architecture, workflow, A2A protocol, planning system
-- `docs/MCP_INTEGRATION.md` - MCP endpoint usage, Claude Desktop integration
+- `architecture.md` - Complete technical reference: system architecture, dual protocol support, workflow, node details, A2A implementation, MCP implementation, planning system, execution flow
 - `docs/STREAMING.md` - Streaming examples and patterns
 
 ## Dependencies

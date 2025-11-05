@@ -5,14 +5,16 @@ This document provides comprehensive technical documentation for the Agent Fleet
 ## Table of Contents
 
 1. [System Overview](#system-overview)
-2. [Router Agent Workflow](#router-agent-workflow)
-3. [Node Descriptions](#node-descriptions)
-4. [State Model](#state-model)
-5. [Agent Discovery](#agent-discovery)
-6. [A2A Protocol Implementation](#a2a-protocol-implementation)
-7. [Planning System](#planning-system)
-8. [Task Execution](#task-execution)
-9. [Dependency Management](#dependency-management)
+2. [Dual Protocol Support](#dual-protocol-support)
+3. [Router Agent Workflow](#router-agent-workflow)
+4. [Node Descriptions](#node-descriptions)
+5. [State Model](#state-model)
+6. [Agent Discovery](#agent-discovery)
+7. [A2A Protocol Implementation](#a2a-protocol-implementation)
+8. [MCP Protocol Implementation](#mcp-protocol-implementation)
+9. [Planning System](#planning-system)
+10. [Task Execution](#task-execution)
+11. [Dependency Management](#dependency-management)
 
 ## System Overview
 
@@ -28,9 +30,48 @@ The Agent Fleet is a multi-agent orchestration system built on LangGraph, using 
 
 - **Capability-Driven**: Task assignment based on agent capabilities, not hardcoded rules
 - **Dynamic Discovery**: Agents are discovered at runtime via A2A agent cards
+- **Dual Protocol Support**: Simultaneously available via A2A and MCP protocols
 - **Protocol-Based Communication**: All inter-agent communication uses A2A (JSON-RPC over HTTP)
 - **Async-First**: Non-blocking I/O throughout using httpx
 - **Stateful Workflows**: LangGraph state machine with checkpointing support
+
+## Dual Protocol Support
+
+The Router Agent is simultaneously exposed via two protocols from a single LangGraph Server instance:
+
+### A2A Protocol (Agent-to-Agent)
+- **Endpoint**: `http://localhost:2024/a2a/router`
+- **Format**: JSON-RPC 2.0
+- **Use Case**: Agent-to-agent communication
+- **Features**: Full protocol support, streaming, sessions, conversation history
+- **Best For**: Other agents calling the router, production agent workflows
+
+### MCP Protocol (Model Context Protocol)
+- **Endpoint**: `http://localhost:2024/mcp/`
+- **Format**: JSON-RPC 2.0 (MCP-specific methods)
+- **Use Case**: LLM tool access
+- **Features**: Simple tool interface, stateless calls, automatic schema generation
+- **Best For**: Claude Desktop, IDEs, human-in-loop tools, development
+
+### Why Both Protocols?
+
+**Single Deployment Advantage:**
+- One Router instance serves both protocols
+- No separate MCP server process needed
+- Same logic, same agents, same behavior across protocols
+- Consistent results regardless of access method
+- Easier to maintain, monitor, and scale
+
+**Protocol Selection Guide:**
+- Use **A2A** when: Agents need to communicate, streaming required, sessions needed
+- Use **MCP** when: LLMs need tools, humans-in-loop, IDE integration, simple stateless calls
+
+### Requirements
+
+- `langgraph-api >= 0.2.3` (current: 0.5.4)
+- `langgraph-sdk >= 0.1.61` (current: 0.2.9)
+
+Both protocols are automatically enabled when LangGraph Server starts - no additional configuration required beyond defining agents in `langgraph.json`.
 
 ## Router Agent Workflow
 
@@ -420,6 +461,253 @@ async def invoke_agent(agent_id: str, message: str):
 - Check `isinstance(response.root, SendMessageSuccessResponse)`
 - Handle both `Message` and `Task` result types
 - Extract text from message parts
+
+## MCP Protocol Implementation
+
+The MCP endpoint is automatically provided by LangGraph Server and uses JSON-RPC 2.0 protocol.
+
+### Endpoint
+
+`POST http://localhost:2024/mcp/`
+
+### Available Methods
+
+#### 1. tools/list
+
+Lists all available agents as MCP tools.
+
+**Request**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "1",
+  "method": "tools/list",
+  "params": {
+    "clientInfo": {
+      "name": "my_client",
+      "version": "1.0.0"
+    },
+    "protocolVersion": "2024-11-05",
+    "capabilities": {}
+  }
+}
+```
+
+**Response**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "1",
+  "result": {
+    "tools": [
+      {
+        "name": "router",
+        "description": "Intelligent orchestrator for ITEP platform...",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "messages": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "role": {"type": "string"},
+                  "content": {"type": "string"}
+                }
+              }
+            },
+            "config": {
+              "type": "object",
+              "properties": {
+                "configurable": {
+                  "type": "object",
+                  "properties": {
+                    "mode": {"enum": ["auto", "interactive", "review"]}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+#### 2. tools/call
+
+Invokes a tool (agent).
+
+**Request**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "2",
+  "method": "tools/call",
+  "params": {
+    "name": "router",
+    "arguments": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Fix SonarQube violations in my code"
+        }
+      ],
+      "config": {
+        "configurable": {
+          "mode": "auto"
+        }
+      }
+    }
+  }
+}
+```
+
+**Response**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "2",
+  "result": {
+    "final_response": "I've analyzed your request...",
+    "task_results": [...],
+    "is_valid": true
+  }
+}
+```
+
+**Error Response**:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "2",
+  "error": {
+    "code": -32600,
+    "message": "Invalid request"
+  }
+}
+```
+
+### Configuration
+
+Agent descriptions in `langgraph.json` become MCP tool descriptions:
+
+```json
+{
+  "graphs": {
+    "router": {
+      "path": "src.agents.router_agent:create_router_graph",
+      "description": "Intelligent orchestrator for ITEP platform..."
+    }
+  }
+}
+```
+
+### Input Schema Generation
+
+LangGraph automatically generates the `inputSchema` from the agent's state definition (`RouterState` TypedDict). All fields from `RouterState` are exposed, but only `messages` and `config` are required for MCP clients.
+
+### Python Usage Example
+
+```python
+import httpx
+import asyncio
+
+async def call_router_via_mcp():
+    url = "http://localhost:2024/mcp/"
+
+    payload = {
+        "jsonrpc": "2.0",
+        "id": "1",
+        "method": "tools/call",
+        "params": {
+            "name": "router",
+            "arguments": {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "Quick check my code for syntax errors"
+                    }
+                ],
+                "config": {
+                    "configurable": {
+                        "mode": "auto"
+                    }
+                }
+            }
+        }
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(url, json=payload, timeout=120.0)
+        result = response.json()
+
+        if "error" in result:
+            print(f"Error: {result['error']}")
+        else:
+            tool_result = result["result"]
+            print(tool_result.get("final_response"))
+
+asyncio.run(call_router_via_mcp())
+```
+
+### MCP Limitations
+
+**Stateless Requests**:
+- Each MCP call is independent with no session continuity
+- Cannot maintain conversation history across calls
+- **Workaround**: Include all relevant context in each message
+
+**No Interactive Mode**:
+- Human-in-the-loop approval doesn't work (no pause/resume)
+- Interactive mode requires session support
+- **Workaround**: Always use `mode: "auto"` for MCP clients
+
+**No Streaming**:
+- MCP tools return final results only
+- No intermediate progress updates
+- **Workaround**: For streaming, use A2A protocol or LangGraph SDK directly
+
+**Timeouts**:
+- Complex requests can take 30-120 seconds
+- MCP clients should set appropriate timeouts
+- Consider showing "processing..." status to users
+
+### Claude Desktop Integration
+
+Add to Claude Desktop MCP settings:
+
+```json
+{
+  "mcpServers": {
+    "router-agent": {
+      "url": "http://localhost:2024/mcp",
+      "transport": "streamable-http"
+    }
+  }
+}
+```
+
+Claude can then discover and use the router tool:
+```
+User: "Use the router tool to analyze my code for SonarQube violations"
+Claude: [Calls router tool with appropriate arguments]
+```
+
+### Testing MCP Endpoint
+
+Run the test suite:
+
+```bash
+python test_mcp_endpoint.py
+```
+
+This verifies:
+1. `tools/list` method returns router tool
+2. Tool schema is correctly generated
+3. `tools/call` method successfully invokes router
+4. JSON-RPC responses are properly formatted
 
 ## Planning System
 

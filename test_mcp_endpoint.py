@@ -24,20 +24,43 @@ async def test_mcp_tools_list():
     print("TEST 1: List MCP Tools")
     print("=" * 70)
 
-    url = "http://localhost:2024/mcp/list_tools"
+    url = "http://localhost:2024/mcp/"
+
+    # MCP uses JSON-RPC 2.0 protocol
+    payload = {
+        "jsonrpc": "2.0",
+        "id": "1",
+        "method": "tools/list",
+        "params": {
+            "clientInfo": {
+                "name": "test_client",
+                "version": "1.0.0"
+            },
+            "protocolVersion": "2024-11-05",
+            "capabilities": {}
+        }
+    }
 
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.post(url, timeout=10.0)
+            response = await client.post(url, json=payload, timeout=10.0)
             response.raise_for_status()
 
-            tools = response.json()
+            result = response.json()
+
+            # JSON-RPC response format
+            if "error" in result:
+                print(f"✗ JSON-RPC Error: {result['error']}")
+                return None
+
+            tools = result.get("result", {}).get("tools", [])
             print(f"\n✓ Found {len(tools)} MCP tools:\n")
 
             for tool in tools:
                 print(f"Tool: {tool.get('name')}")
                 print(f"  Description: {tool.get('description', 'N/A')[:100]}...")
-                print(f"  Input Schema: {json.dumps(tool.get('inputSchema', {}), indent=2)[:200]}...")
+                schema = tool.get('inputSchema', {})
+                print(f"  Input Schema: {json.dumps(schema, indent=2)[:200]}...")
                 print()
 
             return tools
@@ -56,27 +79,34 @@ async def test_mcp_call_router():
     print("TEST 2: Call Router via MCP")
     print("=" * 70)
 
-    url = "http://localhost:2024/mcp/call_tool"
+    url = "http://localhost:2024/mcp/"
 
-    # MCP tool call payload
+    user_request = "Quick check my code for syntax errors"
+
+    # MCP uses JSON-RPC 2.0 for tool calls
     payload = {
-        "name": "router",
-        "arguments": {
-            "messages": [
-                {
-                    "role": "user",
-                    "content": "Quick check my code for syntax errors"
-                }
-            ],
-            "config": {
-                "configurable": {
-                    "mode": "auto"
+        "jsonrpc": "2.0",
+        "id": "2",
+        "method": "tools/call",
+        "params": {
+            "name": "router",
+            "arguments": {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": user_request
+                    }
+                ],
+                "config": {
+                    "configurable": {
+                        "mode": "auto"
+                    }
                 }
             }
         }
     }
 
-    print(f"\nCalling router with: {payload['arguments']['messages'][0]['content']}")
+    print(f"\nCalling router with: {user_request}")
     print()
 
     async with httpx.AsyncClient() as client:
@@ -89,20 +119,27 @@ async def test_mcp_call_router():
             response.raise_for_status()
 
             result = response.json()
+
+            # JSON-RPC response format
+            if "error" in result:
+                print(f"✗ JSON-RPC Error: {result['error']}")
+                return None
+
+            tool_result = result.get("result", {})
             print("✓ Router responded:\n")
-            print(json.dumps(result, indent=2))
+            print(json.dumps(tool_result, indent=2))
             print()
 
-            return result
+            return tool_result
 
-        except httpx.HTTPStatusError as e:
-            print(f"✗ HTTP Error {e.response.status_code}: {e.response.text}")
+        except httpx.HTTPStatusError as err:
+            print(f"✗ HTTP Error {err.response.status_code}: {err.response.text}")
             return None
         except httpx.TimeoutException:
             print("✗ Request timed out (120s)")
             return None
-        except Exception as e:
-            print(f"✗ Error: {e}")
+        except Exception as err:
+            print(f"✗ Error: {err}")
             return None
 
 
@@ -112,14 +149,35 @@ async def test_mcp_schema():
     print("TEST 3: Get Router Schema")
     print("=" * 70)
 
-    url = "http://localhost:2024/mcp/list_tools"
+    url = "http://localhost:2024/mcp/"
+
+    # JSON-RPC request for tools/list
+    payload = {
+        "jsonrpc": "2.0",
+        "id": "3",
+        "method": "tools/list",
+        "params": {
+            "clientInfo": {
+                "name": "test_client",
+                "version": "1.0.0"
+            },
+            "protocolVersion": "2024-11-05",
+            "capabilities": {}
+        }
+    }
 
     async with httpx.AsyncClient() as client:
         try:
-            response = await client.post(url, timeout=10.0)
+            response = await client.post(url, json=payload, timeout=10.0)
             response.raise_for_status()
 
-            tools = response.json()
+            result = response.json()
+
+            if "error" in result:
+                print(f"✗ JSON-RPC Error: {result['error']}")
+                return None
+
+            tools = result.get("result", {}).get("tools", [])
             router_tool = next((t for t in tools if t["name"] == "router"), None)
 
             if router_tool:
@@ -131,8 +189,8 @@ async def test_mcp_schema():
                 print("✗ Router tool not found in MCP tools list")
                 return None
 
-        except Exception as e:
-            print(f"✗ Error: {e}")
+        except Exception as err:
+            print(f"✗ Error: {err}")
             return None
 
 
