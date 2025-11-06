@@ -11,6 +11,7 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 from ..models.router_state import RouterState
 from ..llm.factory import LLMFactory
+from ..utils import PromptManager
 
 logger = logging.getLogger(__name__)
 
@@ -55,55 +56,25 @@ def aggregate_results(state: RouterState) -> dict:
     completed_count = sum(1 for task in task_results if task["status"] == "completed")
     failed_count = sum(1 for task in task_results if task["status"] == "failed")
 
-    # Build aggregation prompt
-    aggregation_prompt = f"""You are the Response Synthesizer for the ITEP Agentic AI Platform.
-
-ORIGINAL USER REQUEST:
-{original_request}
-
-EXECUTION SUMMARY:
-- Total tasks: {len(task_results)}
-- Completed: {completed_count}
-- Failed: {failed_count}
-
-DETAILED TASK RESULTS:
-{results_summary}
-
-YOUR TASK:
-Create a comprehensive, user-friendly response that:
-
-1. DIRECTLY ANSWERS the user's original request
-2. SYNTHESIZES findings from all task results into a coherent narrative
-3. ORGANIZES information logically (not just task-by-task repetition)
-4. HIGHLIGHTS key insights, recommendations, or action items
-5. ACKNOWLEDGES any limitations or failed tasks (if applicable)
-6. PROVIDES next steps or follow-up recommendations
-
-GUIDELINES:
-- Write in a clear, professional tone
-- Focus on what the user needs to know, not implementation details
-- Use markdown formatting for readability (headers, lists, code blocks)
-- Be concise but comprehensive
-- If tasks failed, explain what was attempted and suggest alternatives
-- Don't mention "agents" or "tasks" - user doesn't need to know internal orchestration
-
-IMPORTANT:
-- This is the final response the user will see
-- Make it actionable and valuable
-- Integrate results seamlessly, don't just list them
-
-Generate the final response:
-"""
+    # Get aggregation prompt from PromptManager
+    aggregation_prompt = PromptManager.get_prompt(
+        "aggregation",
+        original_request=original_request,
+        task_count=len(task_results),
+        completed_count=completed_count,
+        failed_count=failed_count,
+        results_summary=results_summary
+    )
 
     # Call LLM for aggregation
     llm = LLMFactory.create(
         provider=os.getenv("LLM_PROVIDER", "anthropic"),
         model=os.getenv("LLM_MODEL"),
-        temperature=0.7  # Higher temperature for more natural summarization
+        temperature=PromptManager.get_temperature("aggregation")
     )
 
     messages = [
-        SystemMessage(content="You are an expert at synthesizing technical information into clear, actionable responses."),
+        SystemMessage(content=PromptManager.get_system_message("aggregation")),
         HumanMessage(content=aggregation_prompt)
     ]
 

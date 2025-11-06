@@ -17,6 +17,7 @@ from langchain_core.runnables import RunnableConfig
 from ..models.router_state import RouterState, Plan, Task
 from ..llm.factory import LLMFactory
 from ..utils.discovery import discover_agents_from_langgraph
+from ..utils import PromptManager
 
 logger = logging.getLogger(__name__)
 
@@ -96,63 +97,23 @@ Consider these results when creating the new plan. You may need to:
 - Adjust task decomposition based on what we learned
 """
 
-    # Build planning prompt
-    planning_prompt = f"""You are the Task Breakdown system for the ITEP Agentic AI Platform.
-
-USER REQUEST:
-{user_request}
-
-AVAILABLE AGENTS:
-{agent_summary}
-{replan_context}
-
-YOUR TASK:
-Create an execution plan to fulfill this request by:
-1. Analyzing what needs to be done
-2. Breaking it into specific, actionable tasks
-3. Assigning each task to the most capable agent
-4. Identifying task dependencies
-5. Determining if tasks can run in parallel or must be sequential
-
-GUIDELINES:
-- Each task should be atomic and focused
-- Match tasks to agent capabilities precisely
-- Prefer parallel execution when tasks are independent
-- Use sequential execution when tasks depend on each other
-- Provide clear rationale for each agent selection
-- If multiple agents could handle a task, choose the most specialized one
-
-Respond with JSON in this exact format:
-{{
-  "analysis": "Brief analysis of the request and approach",
-  "execution_strategy": "parallel" or "sequential",
-  "tasks": [
-    {{
-      "description": "Clear description of what this task accomplishes",
-      "agent_id": "exact agent ID from available agents",
-      "agent_name": "agent name for logging",
-      "dependencies": ["task_id_1", "task_id_2"],  // empty list if no dependencies
-      "rationale": "Why this agent was chosen for this task"
-    }}
-  ]
-}}
-
-IMPORTANT:
-- Use exact agent IDs from the available agents list
-- Dependencies should reference task IDs (will be auto-generated)
-- For parallel strategy, ensure tasks have no circular dependencies
-- For sequential strategy, tasks will execute in the order listed
-"""
+    # Get planning prompt from PromptManager
+    planning_prompt = PromptManager.get_prompt(
+        "planning",
+        user_request=user_request,
+        agent_summary=agent_summary,
+        replan_context=replan_context
+    )
 
     # Call LLM for planning
     llm = LLMFactory.create(
         provider=os.getenv("LLM_PROVIDER", "anthropic"),
         model=os.getenv("LLM_MODEL"),
-        temperature=0.5  # Moderate temperature for creative but consistent planning
+        temperature=PromptManager.get_temperature("planning")
     )
 
     messages = [
-        SystemMessage(content="You are an expert at task decomposition and agent orchestration."),
+        SystemMessage(content=PromptManager.get_system_message("planning")),
         HumanMessage(content=planning_prompt)
     ]
 

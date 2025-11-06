@@ -13,6 +13,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 
 from ..models.router_state import RouterState
 from ..llm.factory import LLMFactory
+from ..utils import PromptManager
 
 logger = logging.getLogger(__name__)
 
@@ -70,52 +71,24 @@ def analyze_results(state: RouterState) -> dict:
         for idx, task in enumerate(task_results)
     ])
 
-    # Build analysis prompt
-    analysis_prompt = f"""You are the Result Analyzer for the ITEP Agentic AI Platform.
-
-ORIGINAL USER REQUEST:
-{original_request}
-
-TASK EXECUTION RESULTS:
-{results_summary}
-
-YOUR TASK:
-Evaluate if these results sufficiently address the user's original request.
-
-EVALUATION CRITERIA:
-1. Task Success: Did all tasks complete successfully?
-2. Completeness: Do the results fully answer the user's question/request?
-3. Quality: Are the results actionable and useful?
-4. Gaps: Are there obvious follow-up tasks needed?
-
-DECISION:
-- If results are sufficient → recommend NO REPLAN
-- If critical tasks failed → recommend REPLAN with specific recovery actions
-- If results are incomplete → recommend REPLAN with additional tasks
-- If there are clear gaps → recommend REPLAN to fill them
-
-IMPORTANT:
-- Consider the current replan attempt ({replan_count + 1}/{max_replans})
-- If we're near max replans, be more lenient (partial results are okay)
-- Focus on whether user's core need is addressed, not perfection
-
-Respond with JSON:
-{{
-  "is_sufficient": true or false,
-  "reasoning": "Detailed explanation of your evaluation",
-  "replan_strategy": "If replanning, what should we do differently? (null if sufficient)"
-}}
-"""
+    # Get analysis prompt from PromptManager
+    analysis_prompt = PromptManager.get_prompt(
+        "analysis",
+        original_request=original_request,
+        results_summary=results_summary,
+        replan_attempt=replan_count + 1,
+        max_replans=max_replans
+    )
 
     # Call LLM for analysis
     llm = LLMFactory.create(
         provider=os.getenv("LLM_PROVIDER", "anthropic"),
         model=os.getenv("LLM_MODEL"),
-        temperature=0.3  # Lower temperature for consistent evaluation
+        temperature=PromptManager.get_temperature("analysis")
     )
 
     messages = [
-        SystemMessage(content="You are an expert at evaluating task execution results."),
+        SystemMessage(content=PromptManager.get_system_message("analysis")),
         HumanMessage(content=analysis_prompt)
     ]
 

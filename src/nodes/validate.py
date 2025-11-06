@@ -11,6 +11,7 @@ from langchain_core.messages import SystemMessage, HumanMessage
 
 from ..models.router_state import RouterState
 from ..llm.factory import LLMFactory
+from ..utils import PromptManager
 
 logger = logging.getLogger(__name__)
 
@@ -42,46 +43,21 @@ def validate_request(state: RouterState) -> dict:
     user_request = latest_message.content
     logger.info(f"Checking request: {user_request[:100]}...")
 
-    # Build validation prompt
-    validation_prompt = f"""You are a guardrail system for the ITEP (IT Engineering Productivity) Agentic AI Platform.
-
-USER REQUEST:
-{user_request}
-
-YOUR TASK:
-Determine if this request is on-topic for the ITEP platform.
-
-ITEP handles:
-- Software development productivity
-- Code quality (SonarQube, code review)
-- CI/CD issues (Jenkins, build failures, deployment)
-- Issue tracking (JIRA tickets)
-- Code repository operations (Git, GitHub, pull requests)
-- Development workflow automation
-
-ITEP does NOT handle:
-- General knowledge questions
-- Weather, news, or entertainment
-- Personal advice
-- Non-technical topics
-- Requests outside software development
-
-Respond with JSON:
-{{
-  "is_valid": true or false,
-  "reasoning": "Brief explanation of your decision"
-}}
-"""
+    # Get validation prompt from PromptManager
+    validation_prompt = PromptManager.get_prompt(
+        "validation",
+        user_request=user_request
+    )
 
     # Call LLM for classification
     llm = LLMFactory.create(
         provider=os.getenv("LLM_PROVIDER", "anthropic"),
         model=os.getenv("LLM_MODEL"),
-        temperature=0.3  # Lower temperature for consistent classification
+        temperature=PromptManager.get_temperature("validation")
     )
 
     messages = [
-        SystemMessage(content="You are an expert at classifying software development requests."),
+        SystemMessage(content=PromptManager.get_system_message("validation")),
         HumanMessage(content=validation_prompt)
     ]
 
