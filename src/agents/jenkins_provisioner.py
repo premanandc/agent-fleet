@@ -5,38 +5,18 @@ Creates Jenkins pipelines for applications.
 Placeholder implementation that returns mock success responses.
 """
 
-import uuid
 import logging
-from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.runnables import RunnableConfig
 
 from ..models.jenkins_state import JenkinsState, JenkinsInput, JenkinsOutput
+from ..utils import create_base_state, create_simple_provisioner_graph
 
 logger = logging.getLogger(__name__)
 
 
 def transform_input(input_data: JenkinsInput) -> JenkinsState:
     """Transform external input to internal state"""
-
-    # Extract user's message
-    user_message = ""
-    if input_data.get("messages"):
-        last_msg = input_data["messages"][-1]
-        if hasattr(last_msg, 'content'):
-            user_message = last_msg.content
-        elif isinstance(last_msg, dict):
-            user_message = last_msg.get('content', '')
-
-    logger.info(f"Jenkins Provisioner: {user_message[:100]}...")
-
-    return {
-        "messages": input_data["messages"],
-        "request_id": str(uuid.uuid4()),
-        "original_request": user_message,
-        "is_valid": False,
-        "status": "pending"
-    }
+    return create_base_state(input_data, "Jenkins Provisioner")
 
 
 def validate_request(state: JenkinsState) -> dict:
@@ -126,33 +106,14 @@ def transform_output(state: JenkinsState) -> JenkinsOutput:
 
 def create_jenkins_provisioner_graph(config: RunnableConfig = None):
     """Factory function to create Jenkins Provisioner Agent graph"""
-
-    logger.info("Initializing Jenkins Provisioner Agent...")
-
-    # Create state graph with explicit input/output schemas
-    graph = StateGraph(
-        JenkinsState,          # Internal state
-        input=JenkinsInput,    # External input
-        output=JenkinsOutput   # External output
+    return create_simple_provisioner_graph(
+        agent_name="Jenkins Provisioner Agent",
+        state_class=JenkinsState,
+        input_class=JenkinsInput,
+        output_class=JenkinsOutput,
+        transform_input_fn=transform_input,
+        validate_fn=validate_request,
+        provision_fn=provision_pipeline,
+        transform_output_fn=transform_output,
+        config=config
     )
-
-    # Add nodes
-    graph.add_node("transform_input", transform_input)
-    graph.add_node("validate", validate_request)
-    graph.add_node("provision", provision_pipeline)
-    graph.add_node("transform_output", transform_output)
-
-    # Build flow
-    graph.add_edge(START, "transform_input")
-    graph.add_edge("transform_input", "validate")
-    graph.add_edge("validate", "provision")
-    graph.add_edge("provision", "transform_output")
-    graph.add_edge("transform_output", END)
-
-    # Compile
-    checkpointer = MemorySaver()
-    compiled_graph = graph.compile(checkpointer=checkpointer)
-
-    logger.info("Jenkins Provisioner Agent initialized successfully")
-
-    return compiled_graph

@@ -5,38 +5,18 @@ Creates dev, test, and staging environments for applications.
 Placeholder implementation that returns mock success responses.
 """
 
-import uuid
 import logging
-from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.runnables import RunnableConfig
 
 from ..models.environment_state import EnvironmentState, EnvironmentInput, EnvironmentOutput
+from ..utils import create_base_state, create_simple_provisioner_graph
 
 logger = logging.getLogger(__name__)
 
 
 def transform_input(input_data: EnvironmentInput) -> EnvironmentState:
     """Transform external input to internal state"""
-
-    # Extract user's message
-    user_message = ""
-    if input_data.get("messages"):
-        last_msg = input_data["messages"][-1]
-        if hasattr(last_msg, 'content'):
-            user_message = last_msg.content
-        elif isinstance(last_msg, dict):
-            user_message = last_msg.get('content', '')
-
-    logger.info(f"Environment Provisioner: {user_message[:100]}...")
-
-    return {
-        "messages": input_data["messages"],
-        "request_id": str(uuid.uuid4()),
-        "original_request": user_message,
-        "is_valid": False,
-        "status": "pending"
-    }
+    return create_base_state(input_data, "Environment Provisioner")
 
 
 def validate_request(state: EnvironmentState) -> dict:
@@ -145,33 +125,14 @@ def transform_output(state: EnvironmentState) -> EnvironmentOutput:
 
 def create_environment_provisioner_graph(config: RunnableConfig = None):
     """Factory function to create Environment Provisioner Agent graph"""
-
-    logger.info("Initializing Environment Provisioner Agent...")
-
-    # Create state graph with explicit input/output schemas
-    graph = StateGraph(
-        EnvironmentState,          # Internal state
-        input=EnvironmentInput,    # External input
-        output=EnvironmentOutput   # External output
+    return create_simple_provisioner_graph(
+        agent_name="Environment Provisioner Agent",
+        state_class=EnvironmentState,
+        input_class=EnvironmentInput,
+        output_class=EnvironmentOutput,
+        transform_input_fn=transform_input,
+        validate_fn=validate_request,
+        provision_fn=provision_environments,
+        transform_output_fn=transform_output,
+        config=config
     )
-
-    # Add nodes
-    graph.add_node("transform_input", transform_input)
-    graph.add_node("validate", validate_request)
-    graph.add_node("provision", provision_environments)
-    graph.add_node("transform_output", transform_output)
-
-    # Build flow
-    graph.add_edge(START, "transform_input")
-    graph.add_edge("transform_input", "validate")
-    graph.add_edge("validate", "provision")
-    graph.add_edge("provision", "transform_output")
-    graph.add_edge("transform_output", END)
-
-    # Compile
-    checkpointer = MemorySaver()
-    compiled_graph = graph.compile(checkpointer=checkpointer)
-
-    logger.info("Environment Provisioner Agent initialized successfully")
-
-    return compiled_graph
