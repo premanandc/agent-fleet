@@ -69,10 +69,11 @@ async def execute_tasks(state: RouterState, config: RunnableConfig) -> dict:
     else:  # sequential
         results = await _execute_sequential(tasks, completed_tasks, original_request, langgraph_url)
 
-    # Merge results with any previous results
-    all_results = list(completed_tasks.values()) + results
+    # completed_tasks dict was mutated during execution to include new results
+    # Return all tasks (both previously completed and newly executed)
+    all_results = list(completed_tasks.values())
 
-    logger.info(f"Completed {len(results)} tasks")
+    logger.info(f"Executed {len(results)} new tasks (total: {len(all_results)})")
     for task in results:
         status_icon = "✓" if task["status"] == "completed" else "✗"
         logger.info(f"  {status_icon} {task['description']} - {task['status']}")

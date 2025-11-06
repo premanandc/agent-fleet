@@ -24,13 +24,16 @@ async def test_streaming_with_progress():
     print("=" * 70)
     print()
 
-    test_request = "Analyze my code for security vulnerabilities and provide fixes"
+    test_request = "Set up a complete stack for a new Express API called 'user-service'"
 
     print(f"📤 Request: {test_request}")
     print()
     print("🚀 Starting Router Agent...\n")
 
     try:
+        # Accumulate state as we stream
+        accumulated_state = {}
+
         async for chunk in client.runs.stream(
             None,  # Threadless run
             "router",  # Assistant ID
@@ -40,18 +43,31 @@ async def test_streaming_with_progress():
                     "content": test_request
                 }]
             },
-            stream_mode="updates",  # Stream state updates after each node
+            stream_mode="debug",  # Debug mode gives access to internal state
             config={
                 "configurable": {
                     "mode": "auto"  # Fully autonomous execution
                 }
             }
         ):
-            # Process each chunk
-            if chunk.event == "updates" and chunk.data:
-                # chunk.data is a dict with node name as key
-                for node_name, node_data in chunk.data.items():
-                    _display_node_progress(node_name, node_data)
+            if chunk.event == "debug" and chunk.data:
+                debug_type = chunk.data.get("type")
+                payload = chunk.data.get("payload")
+
+                # Only process task completions
+                if debug_type == "task_result" and payload:
+                    node_name = payload.get("name")
+                    result = payload.get("result")  # State delta from this node
+                    error = payload.get("error")
+
+                    if error:
+                        print(f"\n❌ {node_name.upper()} FAILED")
+                        print(f"   Error: {error}")
+                    elif node_name and result and isinstance(result, dict):
+                        # Accumulate state updates
+                        accumulated_state.update(result)
+                        # Display using accumulated state
+                        _display_node_progress(node_name, accumulated_state)
 
         print("\n✅ Router Agent completed successfully!\n")
         print("=" * 70)
@@ -75,6 +91,12 @@ def _display_node_progress(node_name: str, node_data: dict):
     print(f"{'─' * 70}")
     print(f"✓ {node_name.upper()}")
     print(f"{'─' * 70}")
+
+    # Skip transformation nodes (they don't have user-visible output)
+    if node_name in ["transform_input", "transform_output"]:
+        print("  (Internal transformation)")
+        print()
+        return
 
     # Display node-specific information
     if node_name == "validate":

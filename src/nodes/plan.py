@@ -186,11 +186,15 @@ IMPORTANT:
 
         # Build Task objects with generated IDs
         tasks = []
-        task_id_map = {}  # Map temp IDs to real IDs for dependency resolution
+        task_id_map = {}  # Map LLM-provided IDs to our generated UUIDs
 
         for idx, raw_task in enumerate(raw_tasks):
             task_id = f"task_{uuid.uuid4().hex[:8]}"
+
+            # Map both index and any LLM-provided ID to our UUID
             task_id_map[idx] = task_id
+            # LLM might use "task_1", "task_2", etc. or just indices
+            task_id_map[f"task_{idx + 1}"] = task_id  # Map "task_1" → our UUID
 
             agent_id = raw_task.get("agent_id")
             agent_name = raw_task.get("agent_name", agent_id)
@@ -214,9 +218,28 @@ IMPORTANT:
 
             tasks.append(task)
 
-        # Resolve dependencies (convert indices to real IDs if needed)
-        # For now, keep dependencies as-is since LLM should provide task IDs
-        # If LLM provides indices, we'd need to map them here
+        # Resolve dependencies: convert LLM-provided IDs to our UUIDs
+        for task in tasks:
+            if task.get("dependencies"):
+                resolved_deps = []
+                for dep in task["dependencies"]:
+                    # Try to map the dependency ID
+                    resolved_id = task_id_map.get(dep)
+                    if resolved_id:
+                        resolved_deps.append(resolved_id)
+                    else:
+                        # Try as integer index
+                        try:
+                            idx = int(dep)
+                            resolved_id = task_id_map.get(idx)
+                            if resolved_id:
+                                resolved_deps.append(resolved_id)
+                            else:
+                                logger.warning(f"Dependency '{dep}' not found in task map")
+                        except ValueError:
+                            logger.warning(f"Invalid dependency reference: {dep}")
+
+                task["dependencies"] = resolved_deps
 
         # Create Plan object
         plan = Plan(

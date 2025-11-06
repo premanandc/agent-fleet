@@ -3,15 +3,19 @@
   "graphs": {
     "router": {
       "path": "src.agents.router_agent:create_router_graph",
-      "description": "Intelligent orchestrator for ITEP platform. Analyzes requests, discovers available agents, decomposes tasks based on capabilities, coordinates parallel/sequential execution, and synthesizes results. Handles CI/CD, code quality, SonarQube, build analysis, and DevOps tasks."
+      "description": "Intelligent orchestrator for ITEP platform. Analyzes requests, discovers available agents, decomposes tasks based on capabilities, coordinates parallel/sequential execution, and synthesizes results. Handles DevOps automation, infrastructure provisioning, and multi-step workflows."
     },
-    "quick_agent": {
-      "path": "src.agents.quick_agent:create_quick_agent_graph",
-      "description": "Fast analysis agent for quick validation tasks (1-2s response time). Capabilities: syntax checking, quick code validation, style checks."
+    "github_provisioner": {
+      "path": "src.agents.github_provisioner:create_github_provisioner_graph",
+      "description": "GitHub repository provisioning agent. Creates new GitHub repositories from templates, sets up branch protection, and configures webhooks. Capabilities: repository creation, template management, GitHub organization integration."
     },
-    "slow_agent": {
-      "path": "src.agents.slow_agent:create_slow_agent_graph",
-      "description": "Deep analysis agent for comprehensive code review (5-10s response time). Capabilities: SonarQube remediation, comprehensive analysis, security scanning."
+    "jenkins_provisioner": {
+      "path": "src.agents.jenkins_provisioner:create_jenkins_provisioner_graph",
+      "description": "Jenkins CI/CD pipeline provisioning agent. Creates and configures Jenkins pipelines for applications, sets up build triggers, and manages credentials. Capabilities: pipeline configuration, CI/CD automation, build management."
+    },
+    "environment_provisioner": {
+      "path": "src.agents.environment_provisioner:create_environment_provisioner_graph",
+      "description": "Environment provisioning agent. Creates dev, test, and staging environments for applications on Kubernetes or other platforms. Capabilities: environment provisioning, infrastructure automation, deployment configuration."
     }
   },
   "env": ".env"

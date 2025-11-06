@@ -45,11 +45,6 @@ def create_router_graph(config: RunnableConfig = None):
 
     logger.info("Initializing Router Agent...")
 
-    # Note: Agent discovery is now done lazily in the plan node
-    # to avoid blocking during graph initialization
-    agent_registry = {}
-    logger.info("Agent discovery will occur during planning")
-
     # Create state graph with explicit input/output schemas
     # - Internal state: RouterState (23 fields) - used between nodes
     # - External input: RouterInput (2 fields) - what A2A/MCP clients send
@@ -177,10 +172,6 @@ def create_router_graph(config: RunnableConfig = None):
         checkpointer=checkpointer,
         interrupt_before=["approval"] if config and config.get("configurable", {}).get("mode") == "interactive" else None
     )
-
-    # Store agent registry in graph config for nodes to access
-    # This is a workaround - ideally we'd pass via config in invoke()
-    compiled_graph.agent_registry = agent_registry
 
     logger.info("Router Agent initialized successfully")
 
